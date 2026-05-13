@@ -1,0 +1,184 @@
+{
+  "project_name": "BUMP",
+  "tagline": "Break the ice nearby.",
+  "platform": "React Native Expo (iOS + Android)",
+  "theme": {
+    "mode": "dark",
+    "archetype_primary": "5 (Jewel & Luxury - Cinematic, moody, premium)",
+    "archetype_secondary": "7 (Electric & Neon - High energy, live states)",
+    "vibe": "Gen Z Nightlife, Exclusive, High-Energy, Minimalist, Tactile"
+  },
+  "typography": {
+    "anti_pattern_rule": "No standard Inter or Roboto for headings. Embracing character and tension.",
+    "font_families": {
+      "headings": "Clash Display (Variable or Bold)",
+      "body": "Manrope",
+      "mono_accent": "Azeret Mono (For live counts, distances, time)"
+    },
+    "scales": {
+      "h1_hero": "text-4xl sm:text-5xl font-bold tracking-tighter leading-none",
+      "h2_section": "text-3xl font-semibold tracking-tight",
+      "h3_card": "text-2xl font-semibold tracking-tight",
+      "body_large": "text-lg font-medium leading-relaxed",
+      "body_base": "text-base font-normal leading-normal",
+      "caption_mono": "text-xs font-mono uppercase tracking-[0.2em]"
+    }
+  },
+  "colors": {
+    "background": {
+      "void_black": "#030305",
+      "surface_base": "#0A0A0E",
+      "surface_elevated": "#141419",
+      "glass_panel": "rgba(255, 255, 255, 0.03)"
+    },
+    "brand": {
+      "volt_yellow": "#E1FF00",
+      "neon_fuchsia": "#FF007F",
+      "electric_violet": "#9D4CDD"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#8F8F99",
+      "tertiary": "#5C5C66",
+      "inverse": "#000000"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.06)",
+      "active": "rgba(225, 255, 0, 0.3)"
+    },
+    "gradients": {
+      "bump_match": "linear-gradient(135deg, #FF007F 0%, #9D4CDD 100%)",
+      "live_ring": "linear-gradient(180deg, #E1FF00 0%, rgba(225, 255, 0, 0) 100%)",
+      "image_overlay": "linear-gradient(180deg, rgba(3, 3, 5, 0) 0%, rgba(3, 3, 5, 0.9) 100%)"
+    }
+  },
+  "spacing_and_layout": {
+    "system": "Generous spacing. Tailwind scale heavily leaning on p-6, p-8, p-12 for breathing room.",
+    "screen_padding": "px-6",
+    "border_radius": {
+      "sm": "rounded-md (6px)",
+      "md": "rounded-xl (12px)",
+      "lg": "rounded-[24px] (For main profile cards/venues)",
+      "full": "rounded-full"
+    },
+    "bento_grid": "Used for user profiles (Interests, Stats, Bio broken into masonry/bento blocks rather than pure lists)"
+  },
+  "components": {
+    "buttons": {
+      "primary": {
+        "style": "bg-[#E1FF00] text-black rounded-full px-8 py-4 font-bold text-lg",
+        "interaction": "Scale down on press (Spring physics), Haptic impact (Medium)"
+      },
+      "secondary_glass": {
+        "style": "bg-white/5 border border-white/10 text-white rounded-full px-6 py-3 backdrop-blur-md font-medium",
+        "interaction": "Border glow on active"
+      },
+      "action_circular": {
+        "style": "w-16 h-16 rounded-full flex items-center justify-center bg-[#141419] border border-white/10",
+        "variants": {
+          "pass": "text-white",
+          "like": "text-[#E1FF00]",
+          "super_bump": "bg-[#FF007F] text-white"
+        }
+      }
+    },
+    "venue_card": {
+      "layout": "Large vertical card (h-[400px]), image background, heavy bottom gradient overlay.",
+      "live_badge": "Top right absolute position. Glowing Volt Yellow dot + Mono text 'LIVE (142)'.",
+      "typography": "Bottom left absolute: Venue Name (H2), Distance + Vibe (Body Secondary)."
+    },
+    "profile_card": {
+      "layout": "Edge-to-edge screen minus safe areas, stacked images like a deck of cards.",
+      "overlay": "Dark gradient at bottom 30% to protect text contrast.",
+      "actions": "Floating action bar overlapping the bottom of the card."
+    },
+    "live_indicator": {
+      "style": "Pulsing ring animation using Reanimated, strictly Volt Yellow to indicate physical presence/proximity."
+    }
+  },
+  "screen_blueprints": {
+    "onboarding": {
+      "visuals": "Full screen looping background video of blurred nightlife scenes (dark).",
+      "content": "Massive typography 'Break the ice nearby.' at top.",
+      "actions": "Bottom-docked Volt Yellow 'Enter the Club' (Auth) button."
+    },
+    "home_venues": {
+      "header": "Sticky Top, glassmorphism. 'Where are you tonight?' (H1).",
+      "content": "Vertical scroll of Venue Cards. No horizontal carousels (too generic). Full-width cards with generous gap-6.",
+      "interaction": "Parallax effect on venue background images during scroll."
+    },
+    "check_in_flow": {
+      "step_1": "GPS Validation Map (Dark mode map styling, pure black water/roads, glowing neon pin).",
+      "step_2": "Live Selfie Camera View. Circular mask with a sweeping neon scanner effect. 'Prove you are here.'",
+      "success": "Screen flash, Haptic Success, 'You're IN' massive typography."
+    },
+    "live_feed": {
+      "layout": "Grid of profile thumbnails currently checked into the venue.",
+      "header": "Venue Name + Live Count + 'Active Now'.",
+      "cards": "Tapping a thumbnail expands to the full Profile Card view (Shared Element Transition)."
+    },
+    "match_animation": {
+      "trigger": "Both users 'Like'.",
+      "visuals": "Screen goes void black. Two profile avatars collide. Massive text 'IT'S A BUMP 💥' in neon fuchsia.",
+      "motion": "Heavy haptic feedback, screen shake, particle explosion effect (using Lottie or Skia)."
+    },
+    "chat": {
+      "list": "Clean list, avatars with Volt Yellow rings if currently in the same venue.",
+      "thread": "Dark interface. Sent bubbles: glassmorphism white/10. Received bubbles: Volt Yellow/10 with Volt Yellow border. Very cyber-minimal."
+    }
+  },
+  "motion_and_interactions": {
+    "transitions": "Shared Element Transitions for photos. Fade-through for tabs.",
+    "micro_interactions": "Haptic feedback on ALL major actions (swipes, likes, check-ins). App must feel highly tactile.",
+    "swipe_physics": "Heavy spring configuration. Swiping should feel weighty, not loose."
+  },
+  "media_assets": {
+    "venues": [
+      {
+        "url": "https://images.unsplash.com/photo-1566808907388-c3ce09bc004f",
+        "description": "Blue lighted room - Use for abstract backgrounds or venue headers",
+        "category": "venue_interior"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1640330763728-a4393df80161",
+        "description": "Checkered floor, dimly lit lounge - Use for premium lounge venue cards",
+        "category": "venue_interior"
+      }
+    ],
+    "profiles": [
+      {
+        "url": "https://images.unsplash.com/photo-1546206724-efa0d6c656b1",
+        "description": "Woman standing beside neon light - Gen Z profile picture example",
+        "category": "user_profile"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1570453584666-d5f09271751a",
+        "description": "Woman in black high-neck jacket - Moody lighting profile picture",
+        "category": "user_profile"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1568822602205-62ac63d1268f",
+        "description": "Men's portrait, moody - Profile picture example",
+        "category": "user_profile"
+      }
+    ]
+  },
+  "testing_attributes": {
+    "convention": "data-testid",
+    "examples": [
+      "auth-login-button",
+      "venue-card-[id]",
+      "checkin-camera-trigger",
+      "profile-action-like",
+      "chat-send-message"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "This is a React Native Expo app. Translate Tailwind classes (like p-6, bg-white/5) into React Native StyleSheet or NativeWind equivalents.",
+    "Use 'react-native-reanimated' for all complex animations (live rings, swipe cards, matches).",
+    "Use 'expo-haptics' extensively to match the tactile vibe requested in the guidelines.",
+    "For the Match Animation, use heavy haptics and a full-screen absolute positioned view with an explosion effect.",
+    "Ensure dark mode is locked. Do not build a light mode theme.",
+    "Never use placeholder URLs (e.g. via.placeholder.com). Use the provided Unsplash URLs in the media_assets section for initial seed data or mocks."
+  ]
+}
