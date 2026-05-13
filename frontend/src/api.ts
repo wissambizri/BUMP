@@ -39,8 +39,18 @@ export const api = {
   login: (data: any) => client.post("/auth/login", data).then((r) => r.data),
   me: () => client.get("/auth/me").then((r) => r.data),
   updateProfile: (data: any) => client.put("/profile", data).then((r) => r.data),
+  // social / phone auth
+  googleSession: (sessionId: string) =>
+    client.post("/auth/google/session", { session_id: sessionId }).then((r) => r.data),
+  phoneSend: (phone: string) =>
+    client.post("/auth/phone/send", { phone }).then((r) => r.data),
+  phoneVerify: (phone: string, code: string, firstName?: string, age?: number) =>
+    client
+      .post("/auth/phone/verify", { phone, code, first_name: firstName, age })
+      .then((r) => r.data),
   // venues
-  venues: (lat: number, lng: number) => client.get("/venues", { params: { lat, lng } }).then((r) => r.data),
+  venues: (lat: number, lng: number, refresh = false) =>
+    client.get("/venues", { params: { lat, lng, refresh: refresh ? 1 : 0 } }).then((r) => r.data),
   venue: (id: string) => client.get(`/venues/${id}`).then((r) => r.data),
   // checkin
   checkin: (data: any) => client.post("/checkin", data).then((r) => r.data),

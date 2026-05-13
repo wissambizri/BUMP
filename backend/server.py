@@ -13,6 +13,7 @@ import jwt
 import bcrypt
 import requests
 import random
+import httpx
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -20,6 +21,10 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
+try:
+    from twilio.rest import Client as TwilioClient
+except ImportError:
+    TwilioClient = None
 
 
 ROOT_DIR = Path(__file__).parent
@@ -30,6 +35,10 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 SECRET_KEY = os.environ.get("JWT_SECRET", "bump-super-secret-dev-key-change-in-prod-2026")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_VERIFY_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")  # auto-created if blank
+EMERGENT_AUTH_API = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 30  # 30 days for mobile
 SELFIE_EXPIRE_HOURS = 6
@@ -67,38 +76,58 @@ FIELD_MASK = ",".join([
 ])
 
 
-def _vibe_from_types(types: List[str]) -> str:
-    t = set(types or [])
-    if "night_club" in t:
-        return "Nightclub"
-    if "cocktail_bar" in t:
-        return "Cocktail Bar"
-    if "wine_bar" in t:
-        return "Wine Bar"
-    if "bar" in t or "pub" in t:
-        return "Bar & Lounge"
-    if "rooftop" in t or "lounge_bar" in t:
-        return "Rooftop Lounge"
-    if "live_music_venue" in t:
-        return "Live Music"
-    if "fine_dining_restaurant" in t:
-        return "Fine Dining"
-    if "restaurant" in t:
-        return "Restaurant"
+def _vibe_from_types(primary: Optional[str], types: List[str]) -> str:
+    p = (primary or "").lower()
+    t = [(x or "").lower() for x in (types or [])]
+    # Priority: nightclub > cocktail > wine > bar > rooftop/lounge > live music > fine dining > restaurant
+    ordered = [p] + t
+    for x in ordered:
+        if x == "night_club":
+            return "Nightclub"
+        if x == "cocktail_bar":
+            return "Cocktail Bar"
+        if x == "wine_bar":
+            return "Wine Bar"
+        if x == "pub":
+            return "Pub"
+        if x == "lounge_bar" or x == "rooftop":
+            return "Rooftop Lounge"
+        if x == "live_music_venue":
+            return "Live Music"
+        if x == "fine_dining_restaurant":
+            return "Fine Dining"
+        if x == "bar":
+            return "Bar & Lounge"
+        if x == "restaurant":
+            return "Restaurant"
     return "Nightlife"
 
 
 def _kind_from_types(primary: Optional[str], types: List[str]) -> str:
-    p = primary or ""
-    t = set(types or [])
-    if "night_club" in t or p == "night_club":
-        return "Nightclub"
-    if "cocktail_bar" in t or "wine_bar" in t:
-        return "Cocktail Bar"
-    if "bar" in t or "pub" in t:
-        return "Bar"
-    if "restaurant" in t or "fine_dining_restaurant" in t:
-        return "Restaurant"
+    """Pick the *most nightlife-y* tag as the primary kind.
+    Priority order (strict): Nightclub > Cocktail Bar > Wine Bar > Pub > Bar > Live Music > Fine Dining > Restaurant.
+    primaryType (when set by Google) wins over the secondary types array.
+    """
+    p = (primary or "").lower()
+    t = set((x or "").lower() for x in (types or []))
+    PRIORITY = [
+        ("night_club", "Nightclub"),
+        ("cocktail_bar", "Cocktail Bar"),
+        ("wine_bar", "Wine Bar"),
+        ("pub", "Pub"),
+        ("bar", "Bar"),
+        ("live_music_venue", "Live Music"),
+        ("fine_dining_restaurant", "Fine Dining"),
+        ("restaurant", "Restaurant"),
+    ]
+    # First check primaryType
+    for key, label in PRIORITY:
+        if p == key:
+            return label
+    # Then walk types in priority order so the most nightlife-y wins
+    for key, label in PRIORITY:
+        if key in t:
+            return label
     return "Venue"
 
 
@@ -195,7 +224,7 @@ async def upsert_google_venues(lat: float, lng: float) -> int:
         doc = {
             "name": display,
             "kind": _kind_from_types(primary, types),
-            "vibe": _vibe_from_types(types),
+            "vibe": _vibe_from_types(primary, types),
             "city": city,
             "lat": float(vlat),
             "lng": float(vlng),
@@ -432,6 +461,177 @@ async def me(user: Dict = Depends(get_user)):
     return user
 
 
+# -------------------- TWILIO PHONE OTP --------------------
+class PhoneSendIn(BaseModel):
+    phone: str  # E.164 format e.g. +14155551234
+
+
+class PhoneVerifyIn(BaseModel):
+    phone: str
+    code: str
+    first_name: Optional[str] = "Friend"
+    age: Optional[int] = 21
+
+
+_twilio_client = None
+_twilio_verify_sid_cache: Optional[str] = None
+
+
+def get_twilio():
+    global _twilio_client
+    if _twilio_client is None and TwilioClient and TWILIO_SID and TWILIO_TOKEN:
+        try:
+            _twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN)
+        except Exception as e:
+            logger.error(f"Twilio init err: {e}")
+    return _twilio_client
+
+
+async def ensure_verify_service() -> Optional[str]:
+    """Return the Twilio Verify Service SID. Auto-create one named 'BUMP' if not set."""
+    global _twilio_verify_sid_cache
+    if _twilio_verify_sid_cache:
+        return _twilio_verify_sid_cache
+    if TWILIO_VERIFY_SID:
+        _twilio_verify_sid_cache = TWILIO_VERIFY_SID
+        return _twilio_verify_sid_cache
+    # Check DB for previously-created service
+    rec = await db.config.find_one({"key": "twilio_verify_sid"})
+    if rec and rec.get("value"):
+        _twilio_verify_sid_cache = rec["value"]
+        return _twilio_verify_sid_cache
+    # Create one
+    cli = get_twilio()
+    if not cli:
+        return None
+    try:
+        svc = await asyncio.to_thread(lambda: cli.verify.v2.services.create(friendly_name="BUMP"))
+        sid = svc.sid
+        await db.config.update_one(
+            {"key": "twilio_verify_sid"},
+            {"$set": {"key": "twilio_verify_sid", "value": sid}},
+            upsert=True,
+        )
+        _twilio_verify_sid_cache = sid
+        logger.info(f"Auto-created Twilio Verify Service: {sid}")
+        return sid
+    except Exception as e:
+        logger.error(f"Twilio Verify Service create failed: {e}")
+        return None
+
+
+@api.post("/auth/phone/send")
+async def phone_send(body: PhoneSendIn):
+    cli = get_twilio()
+    sid = await ensure_verify_service()
+    if not cli or not sid:
+        raise HTTPException(503, "Phone auth unavailable")
+    try:
+        await asyncio.to_thread(
+            lambda: cli.verify.v2.services(sid).verifications.create(to=body.phone, channel="sms")
+        )
+        return {"sent": True}
+    except Exception as e:
+        logger.error(f"Phone send err: {e}")
+        raise HTTPException(400, str(e))
+
+
+@api.post("/auth/phone/verify")
+async def phone_verify(body: PhoneVerifyIn):
+    cli = get_twilio()
+    sid = await ensure_verify_service()
+    if not cli or not sid:
+        raise HTTPException(503, "Phone auth unavailable")
+    try:
+        check = await asyncio.to_thread(
+            lambda: cli.verify.v2.services(sid).verification_checks.create(to=body.phone, code=body.code)
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Verification failed: {e}")
+    if check.status != "approved":
+        raise HTTPException(401, "Invalid code")
+    # find or create user
+    user = await db.users.find_one({"phone": body.phone})
+    if not user:
+        uid = str(uuid.uuid4())
+        user = {
+            "id": uid,
+            "email": f"{body.phone}@phone.bump.app",
+            "phone": body.phone,
+            "password": hash_pwd(str(uuid.uuid4())),
+            "first_name": body.first_name or "Friend",
+            "age": body.age or 21,
+            "gender": None,
+            "interested_in": None,
+            "bio": "",
+            "interests": [],
+            "photos": [],
+            "is_admin": False,
+            "is_hidden": False,
+            "blocked_users": [],
+            "auth_provider": "phone",
+            "created_at": utcnow(),
+        }
+        await db.users.insert_one(user.copy())
+    token = make_token(user["id"])
+    return {"token": token, "user": clean_user(user)}
+
+
+# -------------------- EMERGENT GOOGLE OAUTH --------------------
+class GoogleSessionIn(BaseModel):
+    session_id: str  # Temporary token from Emergent redirect
+
+
+@api.post("/auth/google/session")
+async def google_session(body: GoogleSessionIn):
+    """Exchange Emergent session_id for our BUMP JWT.
+    Calls Emergent's session-data endpoint to resolve session_id -> user info.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as cli:
+            r = await cli.get(
+                EMERGENT_AUTH_API,
+                headers={"X-Session-ID": body.session_id},
+            )
+        if r.status_code != 200:
+            raise HTTPException(401, "Invalid Google session")
+        data = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Emergent auth err: {e}")
+        raise HTTPException(503, "Auth service unavailable")
+    email = (data.get("email") or "").lower()
+    name = data.get("name") or "Friend"
+    picture = data.get("picture") or ""
+    if not email:
+        raise HTTPException(400, "No email returned")
+    user = await db.users.find_one({"email": email})
+    if not user:
+        uid = str(uuid.uuid4())
+        first_name = name.split(" ")[0] if name else "Friend"
+        user = {
+            "id": uid,
+            "email": email,
+            "password": hash_pwd(str(uuid.uuid4())),
+            "first_name": first_name,
+            "age": 21,
+            "gender": None,
+            "interested_in": None,
+            "bio": "",
+            "interests": [],
+            "photos": [picture] if picture else [],
+            "is_admin": False,
+            "is_hidden": False,
+            "blocked_users": [],
+            "auth_provider": "google",
+            "created_at": utcnow(),
+        }
+        await db.users.insert_one(user.copy())
+    token = make_token(user["id"])
+    return {"token": token, "user": clean_user(user)}
+
+
 @api.put("/profile")
 async def update_profile(body: ProfileIn, user: Dict = Depends(get_user)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
@@ -444,7 +644,16 @@ async def update_profile(body: ProfileIn, user: Dict = Depends(get_user)):
 
 # -------------------- VENUES --------------------
 @api.get("/venues")
-async def list_venues(lat: float = 0, lng: float = 0, user: Dict = Depends(get_user)):
+async def list_venues(
+    lat: float = 0,
+    lng: float = 0,
+    refresh: int = 0,
+    user: Dict = Depends(get_user),
+):
+    # If refresh requested, drop the grid cache so Google is re-queried
+    if refresh and (lat != 0 or lng != 0):
+        cell = f"{round(lat, 2)},{round(lng, 2)}"
+        await db.places_cache.delete_one({"cell": cell})
     # Discover new venues from Google Places if GPS provided
     if lat != 0 or lng != 0:
         try:

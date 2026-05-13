@@ -54,7 +54,9 @@
         {
           "cameraPermission": "Take a live selfie to check in to venues"
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

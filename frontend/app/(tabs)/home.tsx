@@ -8,6 +8,7 @@ import {
   ImageBackground,
   RefreshControl,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -40,8 +41,9 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeCheckin, setActiveCheckin] = useState<any>(null);
+  const [query, setQuery] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
     let lat = 0;
     let lng = 0;
     try {
@@ -53,7 +55,7 @@ export default function Home() {
       }
     } catch {}
     try {
-      const [vs, ci] = await Promise.all([api.venues(lat, lng), api.myCheckin()]);
+      const [vs, ci] = await Promise.all([api.venues(lat, lng, refresh), api.myCheckin()]);
       setVenues(vs);
       setActiveCheckin(ci.active ? ci.checkin : null);
     } catch (e) {
@@ -86,7 +88,16 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.root}>
       <FlatList
-        data={venues}
+        data={venues.filter((v) => {
+          const q = query.trim().toLowerCase();
+          if (!q) return true;
+          return (
+            v.name.toLowerCase().includes(q) ||
+            v.kind.toLowerCase().includes(q) ||
+            (v.vibe || "").toLowerCase().includes(q) ||
+            (v.city || "").toLowerCase().includes(q)
+          );
+        })}
         keyExtractor={(v) => v.id}
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}
         ListHeaderComponent={
@@ -96,6 +107,29 @@ export default function Home() {
                 <Text style={styles.kicker}>HEY {(user?.first_name || "").toUpperCase()}</Text>
                 <Text style={styles.h1}>Where are{"\n"}you tonight?</Text>
               </View>
+              <TouchableOpacity
+                testID="map-btn"
+                style={styles.mapBtn}
+                onPress={() => router.push("/map")}
+              >
+                <Ionicons name="map" size={20} color={colors.volt} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.searchRow}>
+              <Ionicons name="search" size={16} color={colors.textTertiary} />
+              <TextInput
+                testID="venue-search"
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search venues, vibe, city..."
+                placeholderTextColor={colors.textTertiary}
+                style={styles.searchInput}
+              />
+              {query.length > 0 && (
+                <TouchableOpacity onPress={() => setQuery("")}>
+                  <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
+                </TouchableOpacity>
+              )}
             </View>
             {activeCheckin && (
               <TouchableOpacity
@@ -119,7 +153,7 @@ export default function Home() {
             tintColor={colors.volt}
             onRefresh={() => {
               setRefreshing(true);
-              load();
+              load(true);
             }}
           />
         }
@@ -166,7 +200,32 @@ export default function Home() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.void },
-  header: { paddingTop: 8, paddingBottom: 20 },
+  header: { paddingTop: 8, paddingBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  mapBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  searchInput: { flex: 1, color: colors.textPrimary, fontSize: 14, padding: 0 },
   kicker: {
     color: colors.volt,
     fontSize: 11,
