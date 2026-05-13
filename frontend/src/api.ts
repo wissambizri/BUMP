@@ -34,12 +34,39 @@ client.interceptors.request.use(async (config) => {
 });
 
 export const api = {
-  // auth
+  // auth (legacy email/password — kept for back-compat)
   register: (data: any) => client.post("/auth/register", data).then((r) => r.data),
   login: (data: any) => client.post("/auth/login", data).then((r) => r.data),
   me: () => client.get("/auth/me").then((r) => r.data),
   updateProfile: (data: any) => client.put("/profile", data).then((r) => r.data),
-  // social / phone auth
+  // unified auth (NEW)
+  identify: (identifier: string) =>
+    client.post("/auth/identify", { identifier }).then((r) => r.data),
+  usernameCheck: (username: string) =>
+    client.post("/auth/username/check", { username }).then((r) => r.data),
+  emailOtpSend: (email: string, purpose: "signup" | "login" | "reset" = "signup") =>
+    client.post("/auth/email/send", { email, purpose }).then((r) => r.data),
+  emailOtpVerify: (email: string, code: string, purpose: "signup" | "login" | "reset" = "signup") =>
+    client.post("/auth/email/verify", { email, code, purpose }).then((r) => r.data),
+  signup: (data: {
+    identifier: string;
+    code?: string;
+    username?: string;
+    password?: string;
+    first_name: string;
+    age: number;
+  }) => client.post("/auth/signup", data).then((r) => r.data),
+  loginUnified: (data: { identifier: string; password?: string; code?: string }) =>
+    client.post("/auth/login-unified", data).then((r) => r.data),
+  forgot: (identifier: string) =>
+    client.post("/auth/forgot", { identifier }).then((r) => r.data),
+  resetConfirm: (data: {
+    token?: string;
+    identifier?: string;
+    code?: string;
+    new_password: string;
+  }) => client.post("/auth/reset", data).then((r) => r.data),
+  // social / phone auth (legacy)
   googleSession: (sessionId: string) =>
     client.post("/auth/google/session", { session_id: sessionId }).then((r) => r.data),
   phoneSend: (phone: string) =>

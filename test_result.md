@@ -101,3 +101,209 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  BUMP — a proximity-based nightlife social matching app (React Native Expo + FastAPI + MongoDB).
+  Latest user request: simplify auth into a unified flow where users sign up / verify / log in using
+  username OR email OR phone (single identifier field, smart routing). Email OTP via Resend,
+  phone OTP via Twilio, forgot password supports email reset link AND phone OTP reset.
+  Drop Google/Apple sign-in buttons. Username 3–20 letters/digits/underscore.
+
+backend:
+  - task: "Unified auth — POST /api/auth/identify (smart routing)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "New endpoint detects identifier type (email/phone/username) and returns next auth step. Username login requires existing user; phone uses Twilio OTP; email new users get email OTP."
+      - working: true
+        agent: "testing"
+        comment: "All 6 identify cases pass: ava@bump.app→email/exists/password, ava_nyc→username/exists/password, fresh email→email/!exists/otp_email, +14155550199→phone/otp_phone, 'ab' (too short)→400, 'abc' (unknown username, regex-valid)→404. Existing-user response also includes useful flags has_email=true."
+
+  - task: "Unified auth — POST /api/auth/email/send and /api/auth/email/verify (Resend OTP)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Email OTPs sent via Resend (RESEND_API_KEY in .env). 6-digit codes, 10min expiry, 30s rate limit, max 5 attempts. Returns scope_token after verify (15min) used in /auth/signup."
+      - working: true
+        agent: "testing"
+        comment: "email/send: fresh signup returns {sent:true, dev_code:'<6 digit>'} in DEMO_MODE (Resend likely sandbox-restricted to verified domains); 2nd call within 30s correctly returns 429; signup against ava@bump.app returns 400. email/verify: wrong code →401; correct code →{verified:true, scope_token:'<jwt>'}. Verified the scope_token is a valid JWT consumed by /auth/signup."
+
+  - task: "Unified auth — POST /api/auth/signup (email + phone signup with username)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Accepts identifier (email or phone), code (scope_token for email OR Twilio code for phone), optional username, first_name, age, password (required for email). Creates user and returns JWT token."
+      - working: true
+        agent: "testing"
+        comment: "Email signup happy path tested end-to-end: send→verify (dev_code captured)→signup with scope_token+password+username returns {token, user{username}}. Missing password →400 ('Password must be at least 6 characters'). Invalid scope_token →401. Phone signup not tested (requires real Twilio SMS), but logic shares ensure_verify_service which works for /auth/forgot phone path."
+
+  - task: "Unified auth — POST /api/auth/login-unified"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Smart login: phone → Twilio OTP verification; email/username → password verification. Returns JWT."
+      - working: true
+        agent: "testing"
+        comment: "Email path (ava@bump.app + demo1234) returns valid token+user. Username path (ava_nyc + demo1234) returns same user.id, confirming username→email lookup. Wrong password →401. Unknown identifier →404. Returned token works on GET /auth/me and returns ava@bump.app."
+
+  - task: "Unified auth — POST /api/auth/forgot and /api/auth/reset"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Forgot: sends email reset link via Resend (token, 30min) OR phone SMS via Twilio. Reset confirms via token or phone OTP and updates password. Silent success to avoid enumeration."
+      - working: true
+        agent: "testing"
+        comment: "forgot with known email (ava@bump.app) →{sent:true, channel:email}. Unknown email →silent {sent:true, channel:email} (no enumeration). Phone identifier (+14155550100) →{sent:true, channel:phone} (Twilio Verify SMS dispatched server-side). /auth/reset endpoint NOT exercised directly because (a) phone OTP cannot be captured without real SMS and (b) email reset_token is only in DB. Code review shows reset accepts {token} for email path and {identifier+code} for phone path, hashes new_password via bcrypt, and marks token used. Recommend main agent add an integration test using db.reset_tokens directly if deeper coverage is needed."
+
+  - task: "Username availability check — POST /api/auth/username/check"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Validates regex (3–20 alphanumeric+underscore), checks uniqueness in db.users."
+      - working: true
+        agent: "testing"
+        comment: "'ava_nyc' →{available:false, reason:'Username taken'}. fresh 'newhandle_<hex>' →{available:true}. 'ab' (too short) →{available:false, reason:'Must be 3–20 letters, digits, or underscore'}."
+
+  - task: "Backward compat — legacy /api/auth/register & /api/auth/login"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Kept for backward compat; tested working previously. Demo users (ava@bump.app/demo1234 etc.) seeded with usernames (ava_nyc, maya_design, etc.)."
+
+frontend:
+  - task: "Unified auth screen (app/auth.tsx)"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/auth.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Single-screen smart routing: identifier → password/OTP/signup paths. Real-time username availability check. Resend cooldown timer. Google/Apple buttons removed."
+
+  - task: "Forgot password screen (app/forgot.tsx)"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/forgot.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Email path: paste token from email + new password. Phone path: OTP + new password."
+
+metadata:
+  created_by: "main_agent"
+  version: "2.0"
+  test_sequence: 2
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Unified auth — POST /api/auth/identify (smart routing)"
+    - "Unified auth — POST /api/auth/email/send and /api/auth/email/verify (Resend OTP)"
+    - "Unified auth — POST /api/auth/signup (email + phone signup with username)"
+    - "Unified auth — POST /api/auth/login-unified"
+    - "Unified auth — POST /api/auth/forgot and /api/auth/reset"
+    - "Username availability check — POST /api/auth/username/check"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Built unified auth system. Please test the new endpoints:
+      1. POST /api/auth/identify — try with email, phone (+E.164), and username; verify it returns correct `kind`, `exists`, `next`.
+         - Existing demo: identifier="ava@bump.app" → kind=email, exists=true, next=password
+         - Existing demo: identifier="ava_nyc" → kind=username, exists=true, next=password
+         - New email: identifier="newtest_<uuid>@bump.dev" → kind=email, exists=false, next=otp_email
+         - Phone: identifier="+14155550199" → kind=phone, next=otp_phone (either exists)
+         - Bad input: "abc" or "12" → 400
+      2. POST /api/auth/username/check — try "ava_nyc" (taken), "newhandle123" (available), "ab" (invalid).
+      3. POST /api/auth/email/send — send to a fresh test email. In DEMO_MODE, response may include `dev_code` if Resend send fails. Real Resend key is configured.
+      4. POST /api/auth/email/verify + /api/auth/signup — for a new email, send OTP, verify with `dev_code` (or sandbox-trusted code), then signup with scope_token, password, name, age, optional username. Verify JWT returned + user has username.
+      5. POST /api/auth/login-unified — log in ava@bump.app + password=demo1234. Verify token works on /api/auth/me. Also try identifier="ava_nyc" with password=demo1234.
+      6. POST /api/auth/forgot — try email (ava@bump.app) → returns {sent:true, channel:"email"}. Phone — channel:"phone".
+      7. POST /api/auth/reset — token-based (use a token from DB if Resend failed) and phone-OTP-based.
+      
+      Backward compat: ensure existing /api/auth/login still works for ava@bump.app / demo1234.
+      Mongo indexes created on email/username/phone (unique sparse). Email OTP collection has TTL.
+      DEMO_MODE=1 in .env so /api/auth/email/send may return `dev_code` field when Resend isn't actually delivering.
+      Resend key configured: RESEND_API_KEY in /app/backend/.env
+  - agent: "testing"
+    message: |
+      Backend unified-auth testing complete. 27/27 functional checks PASS via /app/backend_test.py against
+      https://bump-venue-live.preview.emergentagent.com/api.
+
+      Endpoints verified working:
+      - POST /api/auth/identify (6 cases: existing email, existing username, fresh email, phone, too-short →400, unknown username →404)
+      - POST /api/auth/username/check (taken, available, too-short)
+      - POST /api/auth/email/send (fresh→sent+dev_code; 30s rate-limit→429; already-registered signup→400)
+      - POST /api/auth/email/verify (wrong code→401; correct code→verified+scope_token JWT)
+      - POST /api/auth/signup email path end-to-end happy path returns token+user.username; missing password→400; invalid scope_token→401
+      - POST /api/auth/login-unified (email+password, username+password (same user), wrong password→401, unknown→404, token works on /auth/me)
+      - POST /api/auth/forgot (known email, unknown email silent, phone identifier)
+      - Backward-compat POST /api/auth/login still works for ava@bump.app/demo1234
+      - GET /api/venues?lat=40.758&lng=-73.9855 returns 37 venues (sanity)
+
+      IMPORTANT OPERATIONAL NOTE (NOT a code bug):
+      Resend API is currently in sandbox mode tied to "wissambizri961@gmail.com" — backend logs show:
+      "You can only send testing emails to your own email address ... please verify a domain at resend.com/domains".
+      Real users will NOT receive OTP/reset emails until a domain is verified at Resend and RESEND_FROM_EMAIL
+      is updated to that domain. Today this is masked because DEMO_MODE=1 returns dev_code in the response.
+      For production, MAIN AGENT must (a) verify a sending domain in Resend, (b) update RESEND_FROM_EMAIL,
+      and (c) disable DEMO_MODE so dev_code is never returned.
+
+      /api/auth/reset was NOT exercised end-to-end (token only retrievable from db.reset_tokens or
+      via real email; phone OTP requires real SMS). Code review of the endpoint looks correct
+      (bcrypt new_password, token-used flag, expiry, phone OTP via Twilio Verify).
+
+      Phone signup + phone login OTP paths NOT exercised (requires real Twilio SMS delivery).
+      Twilio Verify Service auto-creation via /auth/forgot phone channel succeeded (returned channel:phone),
+      so the integration is wired correctly.

@@ -25,6 +25,12 @@ try:
     from twilio.rest import Client as TwilioClient
 except ImportError:
     TwilioClient = None
+try:
+    import resend
+except ImportError:
+    resend = None
+import re as _re
+import secrets as _secrets
 
 
 ROOT_DIR = Path(__file__).parent
@@ -38,9 +44,15 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_VERIFY_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")  # auto-created if blank
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+APP_DEEPLINK_SCHEME = os.environ.get("APP_DEEPLINK_SCHEME", "bump")
 EMERGENT_AUTH_API = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 30  # 30 days for mobile
+
+if resend and RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 SELFIE_EXPIRE_HOURS = 6
 CHAT_EXPIRE_HOURS = 24
 PLACES_RADIUS_M = 2000  # 2km search radius
@@ -459,6 +471,514 @@ async def login(body: LoginIn):
 @api.get("/auth/me")
 async def me(user: Dict = Depends(get_user)):
     return user
+
+
+# -------------------- UNIFIED AUTH (username | email | phone) --------------------
+USERNAME_RE = _re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+PHONE_RE = _re.compile(r"^\+\d{8,16}$")
+
+
+def detect_identifier_type(identifier: str) -> Optional[str]:
+    s = (identifier or "").strip()
+    if not s:
+        return None
+    if PHONE_RE.match(s):
+        return "phone"
+    if "@" in s and EMAIL_RE.match(s):
+        return "email"
+    if USERNAME_RE.match(s):
+        return "username"
+    return None
+
+
+def normalize_identifier(identifier: str, kind: str) -> str:
+    s = (identifier or "").strip()
+    if kind == "email" or kind == "username":
+        return s.lower()
+    return s
+
+
+async def find_user_by_identifier(identifier: str) -> Optional[Dict[str, Any]]:
+    kind = detect_identifier_type(identifier)
+    if not kind:
+        return None
+    v = normalize_identifier(identifier, kind)
+    if kind == "email":
+        return await db.users.find_one({"email": v})
+    if kind == "phone":
+        return await db.users.find_one({"phone": v})
+    if kind == "username":
+        return await db.users.find_one({"username": v})
+    return None
+
+
+def gen_otp_code() -> str:
+    return "".join([str(_secrets.randbelow(10)) for _ in range(6)])
+
+
+def hash_otp(code: str) -> str:
+    return bcrypt.hashpw(code.encode(), bcrypt.gensalt(rounds=8)).decode()
+
+
+def check_otp(code: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(code.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+async def send_email_otp(email: str, code: str, purpose: str) -> bool:
+    """Send 6-digit OTP via Resend. Returns True if sent."""
+    if not resend or not RESEND_API_KEY:
+        logger.warning(f"Resend not configured — OTP for {email}: {code}")
+        return False
+    try:
+        subject = {
+            "signup": "Verify your BUMP account",
+            "login": "Your BUMP login code",
+            "reset": "Reset your BUMP password",
+        }.get(purpose, "Your BUMP code")
+        html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0a0a0f; color: #f5f5f7; border-radius: 16px;">
+          <h1 style="color: #c5ff00; font-size: 28px; letter-spacing: -1px; margin: 0 0 8px;">BUMP</h1>
+          <p style="color: #a1a1aa; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 24px;">Break the ice nearby.</p>
+          <h2 style="color: #f5f5f7; font-size: 22px; margin: 0 0 12px;">{subject}</h2>
+          <p style="color: #a1a1aa; font-size: 15px; line-height: 1.5; margin: 0 0 24px;">Use this code to {purpose}. It expires in 10 minutes.</p>
+          <div style="background: #1c1c22; border: 1px solid #2a2a32; border-radius: 12px; padding: 24px; text-align: center;">
+            <div style="color: #c5ff00; font-size: 36px; font-weight: 900; letter-spacing: 8px; font-family: 'SF Mono', Menlo, monospace;">{code}</div>
+          </div>
+          <p style="color: #71717a; font-size: 12px; margin: 24px 0 0;">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+        """
+        await asyncio.to_thread(
+            lambda: resend.Emails.send({
+                "from": f"BUMP <{RESEND_FROM_EMAIL}>",
+                "to": [email],
+                "subject": f"{code} — {subject}",
+                "html": html,
+            })
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Resend send err: {e}")
+        return False
+
+
+async def send_email_reset_link(email: str, token: str) -> bool:
+    if not resend or not RESEND_API_KEY:
+        logger.warning(f"Resend not configured — Reset link for {email}: {token}")
+        return False
+    try:
+        link = f"{APP_DEEPLINK_SCHEME}://reset?token={token}"
+        html = f"""
+        <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #0a0a0f; color: #f5f5f7; border-radius: 16px;">
+          <h1 style="color: #c5ff00; font-size: 28px; letter-spacing: -1px; margin: 0 0 8px;">BUMP</h1>
+          <h2 style="color: #f5f5f7; font-size: 22px; margin: 16px 0 12px;">Reset your password</h2>
+          <p style="color: #a1a1aa; font-size: 15px; line-height: 1.5; margin: 0 0 24px;">Tap the button below to choose a new password. This link expires in 30 minutes.</p>
+          <a href="{link}" style="display: inline-block; background: #c5ff00; color: #0a0a0f; padding: 14px 28px; border-radius: 999px; font-weight: 800; text-decoration: none;">Reset password</a>
+          <p style="color: #71717a; font-size: 12px; margin: 24px 0 8px;">Or copy this token into the app: <strong style="color: #f5f5f7;">{token}</strong></p>
+          <p style="color: #71717a; font-size: 12px; margin: 16px 0 0;">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+        """
+        await asyncio.to_thread(
+            lambda: resend.Emails.send({
+                "from": f"BUMP <{RESEND_FROM_EMAIL}>",
+                "to": [email],
+                "subject": "Reset your BUMP password",
+                "html": html,
+            })
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Resend reset err: {e}")
+        return False
+
+
+# ----- Models -----
+class IdentifierIn(BaseModel):
+    identifier: str
+
+
+class UnifiedLoginIn(BaseModel):
+    identifier: str
+    password: Optional[str] = None
+    code: Optional[str] = None
+
+
+class UnifiedSignupIn(BaseModel):
+    identifier: str  # email or phone
+    code: Optional[str] = None  # OTP from email or phone verification
+    username: Optional[str] = None
+    password: Optional[str] = None  # required for email signup
+    first_name: str
+    age: int = Field(ge=18, le=99)
+
+
+class EmailOtpSendIn(BaseModel):
+    email: EmailStr
+    purpose: str = "signup"  # signup | login | reset
+
+
+class EmailOtpVerifyIn(BaseModel):
+    email: EmailStr
+    code: str
+    purpose: str = "signup"
+
+
+class ResetRequestIn(BaseModel):
+    identifier: str  # email or phone
+
+
+class ResetConfirmIn(BaseModel):
+    token: Optional[str] = None  # for email-link reset
+    identifier: Optional[str] = None  # for phone-otp reset
+    code: Optional[str] = None  # for phone-otp reset
+    new_password: str = Field(min_length=6)
+
+
+class UsernameCheckIn(BaseModel):
+    username: str
+
+
+# ----- Endpoint: identifier resolution -----
+@api.post("/auth/identify")
+async def auth_identify(body: IdentifierIn):
+    """Detects identifier type and tells the client what auth step to render."""
+    kind = detect_identifier_type(body.identifier)
+    if not kind:
+        raise HTTPException(400, "Enter a valid email, phone (+1234567890), or username (3–20 letters/digits/_)")
+    v = normalize_identifier(body.identifier, kind)
+    user = await find_user_by_identifier(body.identifier)
+    if user:
+        # Existing user → login
+        if kind == "phone":
+            return {"kind": "phone", "exists": True, "next": "otp_phone"}
+        # email or username → password login (with optional email otp fallback)
+        return {"kind": kind, "exists": True, "next": "password", "has_email": bool(user.get("email") and not user["email"].endswith("@phone.bump.app"))}
+    # New user → signup
+    if kind == "username":
+        raise HTTPException(404, "Username not found. Sign up with email or phone first.")
+    if kind == "phone":
+        return {"kind": "phone", "exists": False, "next": "otp_phone"}
+    return {"kind": "email", "exists": False, "next": "otp_email"}
+
+
+# ----- Endpoint: username availability -----
+@api.post("/auth/username/check")
+async def username_check(body: UsernameCheckIn):
+    u = (body.username or "").strip().lower()
+    if not USERNAME_RE.match(u):
+        return {"available": False, "reason": "Must be 3–20 letters, digits, or underscore"}
+    exists = await db.users.find_one({"username": u})
+    if exists:
+        return {"available": False, "reason": "Username taken"}
+    return {"available": True}
+
+
+# ----- Endpoint: email OTP send/verify -----
+@api.post("/auth/email/send")
+async def email_otp_send(body: EmailOtpSendIn):
+    email = body.email.lower()
+    if body.purpose not in ("signup", "login", "reset"):
+        raise HTTPException(400, "Invalid purpose")
+    # Rate limit: 1 per 30s per email/purpose
+    recent = await db.email_otps.find_one({"email": email, "purpose": body.purpose})
+    if recent:
+        created = ensure_aware(recent.get("created_at"))
+        if created and (utcnow() - created).total_seconds() < 30:
+            raise HTTPException(429, "Please wait a moment before requesting another code")
+    # For signup, email must NOT exist; for login/reset, email MUST exist
+    user = await db.users.find_one({"email": email})
+    if body.purpose == "signup" and user:
+        raise HTTPException(400, "Email already registered. Try logging in.")
+    if body.purpose in ("login", "reset") and not user:
+        # Silent success to avoid email enumeration
+        return {"sent": True}
+    code = gen_otp_code()
+    await db.email_otps.update_one(
+        {"email": email, "purpose": body.purpose},
+        {
+            "$set": {
+                "email": email,
+                "purpose": body.purpose,
+                "code_hash": hash_otp(code),
+                "expires_at": utcnow() + timedelta(minutes=10),
+                "attempts": 0,
+                "created_at": utcnow(),
+            }
+        },
+        upsert=True,
+    )
+    sent = await send_email_otp(email, code, body.purpose)
+    if not sent and os.environ.get("DEMO_MODE", "1") != "1":
+        raise HTTPException(503, "Email service unavailable")
+    resp = {"sent": True}
+    if os.environ.get("DEMO_MODE", "1") == "1" and not sent:
+        # Dev only fallback
+        resp["dev_code"] = code
+    return resp
+
+
+async def _consume_email_otp(email: str, code: str, purpose: str) -> bool:
+    rec = await db.email_otps.find_one({"email": email, "purpose": purpose})
+    if not rec:
+        return False
+    exp = ensure_aware(rec.get("expires_at"))
+    if not exp or exp < utcnow():
+        await db.email_otps.delete_one({"email": email, "purpose": purpose})
+        return False
+    if rec.get("attempts", 0) >= 5:
+        return False
+    ok = check_otp(code, rec["code_hash"])
+    if not ok:
+        await db.email_otps.update_one(
+            {"email": email, "purpose": purpose}, {"$inc": {"attempts": 1}}
+        )
+        return False
+    await db.email_otps.delete_one({"email": email, "purpose": purpose})
+    return True
+
+
+@api.post("/auth/email/verify")
+async def email_otp_verify(body: EmailOtpVerifyIn):
+    """Verifies email OTP. For signup, returns a short-lived signup_token to use in /auth/signup."""
+    email = body.email.lower()
+    ok = await _consume_email_otp(email, body.code, body.purpose)
+    if not ok:
+        raise HTTPException(401, "Invalid or expired code")
+    # Issue a signed claim that this email has been verified for this purpose
+    payload = {
+        "scope": f"verified_{body.purpose}",
+        "email": email,
+        "exp": utcnow() + timedelta(minutes=15),
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return {"verified": True, "scope_token": token}
+
+
+def _consume_scope_token(token: str, purpose: str) -> Optional[str]:
+    try:
+        data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+    if data.get("scope") != f"verified_{purpose}":
+        return None
+    return data.get("email")
+
+
+# ----- Endpoint: unified signup -----
+@api.post("/auth/signup")
+async def unified_signup(body: UnifiedSignupIn):
+    kind = detect_identifier_type(body.identifier)
+    if kind not in ("email", "phone"):
+        raise HTTPException(400, "Sign up with a valid email or phone number")
+    if not body.first_name or len(body.first_name.strip()) < 1:
+        raise HTTPException(400, "First name is required")
+    # Optional username
+    username = (body.username or "").strip().lower() if body.username else None
+    if username:
+        if not USERNAME_RE.match(username):
+            raise HTTPException(400, "Username must be 3–20 letters/digits/underscore")
+        if await db.users.find_one({"username": username}):
+            raise HTTPException(400, "Username taken")
+
+    if kind == "email":
+        email = normalize_identifier(body.identifier, "email")
+        if not body.code:
+            raise HTTPException(400, "Verify your email first")
+        # body.code is the scope_token from /auth/email/verify
+        verified_email = _consume_scope_token(body.code, "signup")
+        if verified_email != email:
+            raise HTTPException(401, "Email verification expired. Resend code.")
+        if not body.password or len(body.password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
+        if await db.users.find_one({"email": email}):
+            raise HTTPException(400, "Email already registered")
+        uid = str(uuid.uuid4())
+        user = {
+            "id": uid,
+            "email": email,
+            "username": username,
+            "password": hash_pwd(body.password),
+            "first_name": body.first_name.strip(),
+            "age": body.age,
+            "gender": None,
+            "interested_in": None,
+            "bio": "",
+            "interests": [],
+            "photos": [],
+            "is_admin": False,
+            "is_hidden": False,
+            "blocked_users": [],
+            "auth_provider": "email",
+            "email_verified": True,
+            "created_at": utcnow(),
+        }
+        await db.users.insert_one(user.copy())
+        token = make_token(uid)
+        return {"token": token, "user": clean_user(user)}
+
+    # phone signup
+    phone = body.identifier.strip()
+    cli = get_twilio()
+    sid = await ensure_verify_service()
+    if not cli or not sid:
+        raise HTTPException(503, "Phone auth unavailable")
+    if not body.code:
+        raise HTTPException(400, "Verify your phone first")
+    try:
+        check = await asyncio.to_thread(
+            lambda: cli.verify.v2.services(sid).verification_checks.create(to=phone, code=body.code)
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Verification failed: {e}")
+    if check.status != "approved":
+        raise HTTPException(401, "Invalid code")
+    if await db.users.find_one({"phone": phone}):
+        raise HTTPException(400, "Phone already registered")
+    uid = str(uuid.uuid4())
+    user = {
+        "id": uid,
+        "email": f"{phone}@phone.bump.app",
+        "phone": phone,
+        "username": username,
+        "password": hash_pwd(_secrets.token_urlsafe(24)),  # random placeholder
+        "first_name": body.first_name.strip(),
+        "age": body.age,
+        "gender": None,
+        "interested_in": None,
+        "bio": "",
+        "interests": [],
+        "photos": [],
+        "is_admin": False,
+        "is_hidden": False,
+        "blocked_users": [],
+        "auth_provider": "phone",
+        "phone_verified": True,
+        "created_at": utcnow(),
+    }
+    await db.users.insert_one(user.copy())
+    token = make_token(uid)
+    return {"token": token, "user": clean_user(user)}
+
+
+# ----- Endpoint: unified login -----
+@api.post("/auth/login-unified")
+async def unified_login(body: UnifiedLoginIn):
+    kind = detect_identifier_type(body.identifier)
+    if not kind:
+        raise HTTPException(400, "Invalid identifier")
+    user = await find_user_by_identifier(body.identifier)
+    if not user:
+        raise HTTPException(404, "Account not found")
+    # Phone login → OTP
+    if kind == "phone":
+        cli = get_twilio()
+        sid = await ensure_verify_service()
+        if not cli or not sid:
+            raise HTTPException(503, "Phone auth unavailable")
+        if not body.code:
+            raise HTTPException(400, "Provide the SMS code")
+        try:
+            check = await asyncio.to_thread(
+                lambda: cli.verify.v2.services(sid).verification_checks.create(to=user["phone"], code=body.code)
+            )
+        except Exception as e:
+            raise HTTPException(400, f"Verification failed: {e}")
+        if check.status != "approved":
+            raise HTTPException(401, "Invalid code")
+        token = make_token(user["id"])
+        return {"token": token, "user": clean_user(user)}
+    # email/username → password
+    if not body.password:
+        raise HTTPException(400, "Password required")
+    if not check_pwd(body.password, user["password"]):
+        raise HTTPException(401, "Wrong password")
+    token = make_token(user["id"])
+    return {"token": token, "user": clean_user(user)}
+
+
+# ----- Endpoint: forgot password -----
+@api.post("/auth/forgot")
+async def forgot_password(body: ResetRequestIn):
+    kind = detect_identifier_type(body.identifier)
+    if not kind:
+        raise HTTPException(400, "Invalid identifier")
+    user = await find_user_by_identifier(body.identifier)
+    # Silent success to avoid enumeration
+    if not user:
+        return {"sent": True, "channel": "email" if kind == "email" else "phone"}
+    if kind == "phone":
+        # Use Twilio Verify
+        cli = get_twilio()
+        sid = await ensure_verify_service()
+        if not cli or not sid:
+            raise HTTPException(503, "Phone auth unavailable")
+        try:
+            await asyncio.to_thread(
+                lambda: cli.verify.v2.services(sid).verifications.create(to=user["phone"], channel="sms")
+            )
+        except Exception as e:
+            logger.error(f"Forgot phone send err: {e}")
+            raise HTTPException(400, "Could not send SMS")
+        return {"sent": True, "channel": "phone"}
+    # email / username → send email reset link
+    target_email = user.get("email")
+    if not target_email or target_email.endswith("@phone.bump.app"):
+        raise HTTPException(400, "No email on file. Use forgot password via phone.")
+    token = _secrets.token_urlsafe(32)
+    await db.reset_tokens.insert_one({
+        "token": token,
+        "user_id": user["id"],
+        "expires_at": utcnow() + timedelta(minutes=30),
+        "used": False,
+        "created_at": utcnow(),
+    })
+    await send_email_reset_link(target_email, token)
+    return {"sent": True, "channel": "email"}
+
+
+# ----- Endpoint: confirm reset -----
+@api.post("/auth/reset")
+async def confirm_reset(body: ResetConfirmIn):
+    if body.token:
+        rec = await db.reset_tokens.find_one({"token": body.token})
+        if not rec or rec.get("used"):
+            raise HTTPException(401, "Invalid or used reset link")
+        exp = ensure_aware(rec.get("expires_at"))
+        if not exp or exp < utcnow():
+            raise HTTPException(401, "Reset link expired")
+        await db.users.update_one({"id": rec["user_id"]}, {"$set": {"password": hash_pwd(body.new_password)}})
+        await db.reset_tokens.update_one({"token": body.token}, {"$set": {"used": True, "used_at": utcnow()}})
+        u = await db.users.find_one({"id": rec["user_id"]}, {"_id": 0, "password": 0})
+        token = make_token(rec["user_id"])
+        return {"token": token, "user": u}
+    # Phone OTP reset
+    if not body.identifier or not body.code:
+        raise HTTPException(400, "Missing identifier or code")
+    kind = detect_identifier_type(body.identifier)
+    if kind != "phone":
+        raise HTTPException(400, "Phone OTP reset requires phone identifier")
+    user = await find_user_by_identifier(body.identifier)
+    if not user:
+        raise HTTPException(404, "Account not found")
+    cli = get_twilio()
+    sid = await ensure_verify_service()
+    if not cli or not sid:
+        raise HTTPException(503, "Phone auth unavailable")
+    try:
+        check = await asyncio.to_thread(
+            lambda: cli.verify.v2.services(sid).verification_checks.create(to=user["phone"], code=body.code)
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Verification failed: {e}")
+    if check.status != "approved":
+        raise HTTPException(401, "Invalid code")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password": hash_pwd(body.new_password)}})
+    token = make_token(user["id"])
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
+    return {"token": token, "user": u}
 
 
 # -------------------- TWILIO PHONE OTP --------------------
@@ -1091,12 +1611,12 @@ SEED_VENUES = [
 ]
 
 SEED_USERS = [
-    {"email": "ava@bump.app", "first_name": "Ava", "age": 24, "gender": "female", "interested_in": "male", "bio": "Dance floor enthusiast. Tequila on the rocks.", "interests": ["House", "Tequila", "Sushi", "Yoga"], "photos": ["https://images.unsplash.com/photo-1546206724-efa0d6c656b1?w=600&q=80"]},
-    {"email": "maya@bump.app", "first_name": "Maya", "age": 26, "gender": "female", "interested_in": "male", "bio": "Designer by day, raver by night.", "interests": ["Techno", "Art", "Coffee", "Travel"], "photos": ["https://images.unsplash.com/photo-1570453584666-d5f09271751a?w=600&q=80"]},
-    {"email": "leo@bump.app", "first_name": "Leo", "age": 28, "gender": "male", "interested_in": "female", "bio": "DJ. Producer. Looking for my muse.", "interests": ["Music", "Vinyl", "Whiskey"], "photos": ["https://images.unsplash.com/photo-1568822602205-62ac63d1268f?w=600&q=80"]},
-    {"email": "zoe@bump.app", "first_name": "Zoe", "age": 23, "gender": "female", "interested_in": "any", "bio": "Catch me on the rooftop.", "interests": ["Cocktails", "Travel", "Photography"], "photos": ["https://images.unsplash.com/photo-1502323777036-f29e3972d82f?w=600&q=80"]},
-    {"email": "kai@bump.app", "first_name": "Kai", "age": 27, "gender": "male", "interested_in": "any", "bio": "Surf by day, dance by night.", "interests": ["Surf", "House", "Beach"], "photos": ["https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=600&q=80"]},
-    {"email": "nia@bump.app", "first_name": "Nia", "age": 25, "gender": "female", "interested_in": "male", "bio": "Champagne tastes, beer budget.", "interests": ["Wine", "Fashion", "Hip Hop"], "photos": ["https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=600&q=80"]},
+    {"email": "ava@bump.app", "username": "ava_nyc", "first_name": "Ava", "age": 24, "gender": "female", "interested_in": "male", "bio": "Dance floor enthusiast. Tequila on the rocks.", "interests": ["House", "Tequila", "Sushi", "Yoga"], "photos": ["https://images.unsplash.com/photo-1546206724-efa0d6c656b1?w=600&q=80"]},
+    {"email": "maya@bump.app", "username": "maya_design", "first_name": "Maya", "age": 26, "gender": "female", "interested_in": "male", "bio": "Designer by day, raver by night.", "interests": ["Techno", "Art", "Coffee", "Travel"], "photos": ["https://images.unsplash.com/photo-1570453584666-d5f09271751a?w=600&q=80"]},
+    {"email": "leo@bump.app", "username": "leo_dj", "first_name": "Leo", "age": 28, "gender": "male", "interested_in": "female", "bio": "DJ. Producer. Looking for my muse.", "interests": ["Music", "Vinyl", "Whiskey"], "photos": ["https://images.unsplash.com/photo-1568822602205-62ac63d1268f?w=600&q=80"]},
+    {"email": "zoe@bump.app", "username": "zoe_roof", "first_name": "Zoe", "age": 23, "gender": "female", "interested_in": "any", "bio": "Catch me on the rooftop.", "interests": ["Cocktails", "Travel", "Photography"], "photos": ["https://images.unsplash.com/photo-1502323777036-f29e3972d82f?w=600&q=80"]},
+    {"email": "kai@bump.app", "username": "kai_surf", "first_name": "Kai", "age": 27, "gender": "male", "interested_in": "any", "bio": "Surf by day, dance by night.", "interests": ["Surf", "House", "Beach"], "photos": ["https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=600&q=80"]},
+    {"email": "nia@bump.app", "username": "nia_wine", "first_name": "Nia", "age": 25, "gender": "female", "interested_in": "male", "bio": "Champagne tastes, beer budget.", "interests": ["Wine", "Fashion", "Hip Hop"], "photos": ["https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=600&q=80"]},
 ]
 
 
@@ -1105,6 +1625,16 @@ async def seed_data():
     # based on user's GPS via /api/venues. See upsert_google_venues().
     # Remove any pre-existing seeded venues so only Google-discovered venues remain
     await db.venues.delete_many({"source": {"$ne": "google"}})
+
+    # Ensure unique indexes for username, phone, email
+    try:
+        await db.users.create_index("email", unique=True, sparse=True)
+        await db.users.create_index("username", unique=True, sparse=True)
+        await db.users.create_index("phone", unique=True, sparse=True)
+        await db.reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+        await db.email_otps.create_index("expires_at", expireAfterSeconds=0)
+    except Exception as e:
+        logger.warning(f"Index creation: {e}")
 
     # Demo users (created without checkin; populate_demo_checkins will check them in
     # to newly-discovered Google venues when users request /api/venues with GPS)
@@ -1117,6 +1647,7 @@ async def seed_data():
             doc = {
                 "id": uid,
                 "email": u["email"],
+                "username": u.get("username"),
                 "password": hash_pwd("demo1234"),
                 "first_name": u["first_name"],
                 "age": u["age"],
@@ -1128,12 +1659,20 @@ async def seed_data():
                 "is_admin": False,
                 "is_hidden": False,
                 "blocked_users": [],
+                "email_verified": True,
                 "created_at": utcnow(),
             }
             await db.users.insert_one(doc)
         # Clear any stale checkins pointing to deleted seed venues
         await db.checkins.delete_many({})
         logger.info("Seeded demo users (no checkins; will populate on first GPS request)")
+
+    # Backfill usernames on existing demo users (in case they were created without them)
+    for u in SEED_USERS:
+        await db.users.update_one(
+            {"email": u["email"], "$or": [{"username": {"$exists": False}}, {"username": None}]},
+            {"$set": {"username": u["username"]}},
+        )
 
     # Admin
     admin = await db.users.find_one({"email": "admin@bump.app"})
