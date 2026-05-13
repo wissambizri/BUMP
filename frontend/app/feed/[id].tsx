@@ -16,7 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { api } from "../../src/api";
 import { colors, fonts } from "../../src/theme";
 import { GradientButton } from "../../src/ui";
@@ -32,6 +32,7 @@ export default function RadarFeed() {
   const [venue, setVenue] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [tab, setTab] = useState<"nearby" | "new">("nearby");
   const cardScale = useRef(new Animated.Value(1)).current;
   const cardOpacity = useRef(new Animated.Value(1)).current;
   const cardTilt = useRef(new Animated.Value(0)).current;
@@ -179,14 +180,50 @@ export default function RadarFeed() {
           <TouchableOpacity testID="feed-back" onPress={() => router.replace("/(tabs)/home")} style={styles.iconBtn}>
             <Ionicons name="chevron-back" size={22} color="#fff" />
           </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={styles.kicker}>RADAR · {feed.length} live</Text>
-            <Text style={styles.venueName} numberOfLines={1}>
-              {venue?.name || "Live now"}
-            </Text>
+          <View style={{ flex: 1, paddingHorizontal: 12 }}>
+            <View style={styles.venueTitleRow}>
+              <Text style={styles.venueTitle} numberOfLines={1}>
+                {venue?.name || "Live now"}
+              </Text>
+              <View style={styles.liveBadgeOutline}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveBadgeText}>LIVE</Text>
+              </View>
+            </View>
           </View>
           <TouchableOpacity testID="leave-feed" onPress={leave} style={styles.iconBtn}>
-            <Ionicons name="exit-outline" size={22} color={colors.pink} />
+            <Ionicons name="flash" size={20} color={colors.pink} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.subHeader}>
+          <Text style={styles.peopleHereText}>
+            {feed.length + 1} people here
+          </Text>
+          <View style={styles.avatarRow}>
+            {feed.slice(0, 5).map((it, idx) => (
+              <Image
+                key={it.user?.id || idx}
+                source={{ uri: it.user?.photos?.[0] || "" }}
+                style={[styles.avatarSmall, { marginLeft: idx === 0 ? 0 : -10, zIndex: 5 - idx }]}
+              />
+            ))}
+            {feed.length > 5 && (
+              <View style={[styles.avatarSmall, styles.avatarMore, { marginLeft: -10 }]}>
+                <Text style={styles.avatarMoreText}>+{feed.length - 5}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.tabRow}>
+          <TouchableOpacity onPress={() => setTab("nearby")} style={styles.tabBtn}>
+            <Text style={[styles.tabText, tab === "nearby" && styles.tabTextActive]}>Nearby</Text>
+            {tab === "nearby" && <View style={styles.tabUnderline} />}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setTab("new")} style={styles.tabBtn}>
+            <Text style={[styles.tabText, tab === "new" && styles.tabTextActive]}>New</Text>
+            {tab === "new" && <View style={styles.tabUnderline} />}
           </TouchableOpacity>
         </View>
 
@@ -342,7 +379,7 @@ export default function RadarFeed() {
                 activeOpacity={0.85}
                 style={[styles.actBtn, styles.actWave]}
               >
-                <Ionicons name="hand-left" size={28} color={colors.lime} />
+                <MaterialCommunityIcons name="hand-wave" size={28} color="#FFC857" />
               </TouchableOpacity>
               <Text style={[styles.actionLabel, styles.actionLabelWave]}>Wave</Text>
             </View>
@@ -360,7 +397,7 @@ export default function RadarFeed() {
                   end={{ x: 1, y: 1 }}
                   style={styles.actBtnInner}
                 >
-                  <Ionicons name="flash" size={28} color="#fff" />
+                  <MaterialCommunityIcons name="star-four-points" size={30} color="#fff" />
                 </LinearGradient>
               </TouchableOpacity>
               <Text style={[styles.actionLabel, styles.actionLabelBump]}>BUMP</Text>
@@ -376,6 +413,70 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
   center: { flex: 1, backgroundColor: colors.void, alignItems: "center", justifyContent: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
+  venueTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  venueTitle: { color: "#fff", fontSize: 22, fontFamily: fonts.heading, fontWeight: "800", letterSpacing: -0.5, flexShrink: 1 },
+  liveBadgeOutline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.pink,
+    backgroundColor: "rgba(255,79,163,0.10)",
+  },
+  subHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 4,
+    gap: 12,
+  },
+  peopleHereText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontFamily: fonts.body,
+    fontWeight: "500",
+  },
+  avatarRow: { flexDirection: "row", alignItems: "center", flex: 1 },
+  avatarSmall: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: colors.void,
+    backgroundColor: colors.elevated,
+  },
+  avatarMore: {
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarMoreText: { color: "#fff", fontSize: 10, fontFamily: fonts.bodyBold, fontWeight: "700" },
+  tabRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 24,
+  },
+  tabBtn: { paddingVertical: 6, alignItems: "center" },
+  tabText: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    fontFamily: fonts.bodyBold,
+    fontWeight: "600",
+  },
+  tabTextActive: { color: "#fff", fontWeight: "800" },
+  tabUnderline: {
+    marginTop: 4,
+    height: 3,
+    width: 28,
+    borderRadius: 2,
+    backgroundColor: colors.pink,
+  },
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.elevated, alignItems: "center", justifyContent: "center" },
   kicker: { color: colors.lime, fontSize: 10, letterSpacing: 2.5, fontFamily: fonts.bodyBold, fontWeight: "800" },
   venueName: { color: "#fff", fontSize: 15, fontFamily: fonts.bodyBold, fontWeight: "700", marginTop: 2 },
@@ -476,20 +577,22 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     color: colors.textSecondary,
-    fontSize: 11,
-    fontFamily: fonts.heading,
-    fontWeight: "800",
-    letterSpacing: 2,
+    fontSize: 13,
+    fontFamily: fonts.body,
+    fontWeight: "600",
+    letterSpacing: 0.2,
     marginTop: 10,
     textAlign: "center",
-    textTransform: "uppercase",
+    textTransform: "none",
   },
   actionLabelWave: {
-    color: colors.lime,
+    color: "#FFC857",
   },
   actionLabelBump: {
     color: colors.pink,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 1,
   },
   actBtn: {
     width: 64,
