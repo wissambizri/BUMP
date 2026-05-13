@@ -10,6 +10,9 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Modal,
+  Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -62,6 +65,76 @@ export default function ProfileSetup() {
   const [hideAge, setHideAge] = useState<boolean>(!!user?.hide_age);
   const [tagQuery, setTagQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [verifyModal, setVerifyModal] = useState<{ open: boolean; kind: "email" | "phone" | null }>({ open: false, kind: null });
+  const [verifyStep, setVerifyStep] = useState<"input" | "code">("input");
+  const [verifyValue, setVerifyValue] = useState("");
+  const [verifyCode, setVerifyCode] = useState("");
+  const [verifyBusy, setVerifyBusy] = useState(false);
+
+  const openVerify = (kind: "email" | "phone") => {
+    setVerifyModal({ open: true, kind });
+    setVerifyStep("input");
+    setVerifyValue(
+      kind === "email"
+        ? user?.email && !String(user.email).endsWith("@phone.bump.app") ? user.email : ""
+        : user?.phone || ""
+    );
+    setVerifyCode("");
+  };
+
+  const closeVerify = () => {
+    if (verifyBusy) return;
+    setVerifyModal({ open: false, kind: null });
+    setVerifyStep("input");
+    setVerifyValue("");
+    setVerifyCode("");
+  };
+
+  const sendVerify = async () => {
+    if (!verifyModal.kind) return;
+    setVerifyBusy(true);
+    try {
+      if (verifyModal.kind === "email") {
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(verifyValue)) {
+          setVerifyBusy(false);
+          return Alert.alert("Invalid", "Enter a valid email");
+        }
+        const res = await api.accountEmailSend(verifyValue);
+        if (res.dev_code) Alert.alert("Dev code", `Test code: ${res.dev_code}`);
+      } else {
+        if (!/^\+\d{8,16}$/.test(verifyValue)) {
+          setVerifyBusy(false);
+          return Alert.alert("Invalid", "Phone must be +E.164 format (+14155550100)");
+        }
+        await api.accountPhoneSend(verifyValue);
+      }
+      setVerifyStep("code");
+    } catch (e: any) {
+      Alert.alert("Couldn't send", e?.response?.data?.detail || "Try again");
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
+
+  const confirmVerify = async () => {
+    if (!verifyModal.kind || verifyCode.length < 4) return;
+    setVerifyBusy(true);
+    try {
+      let res: any;
+      if (verifyModal.kind === "email") {
+        res = await api.accountEmailConfirm(verifyCode, verifyValue);
+      } else {
+        res = await api.accountPhoneConfirm(verifyCode, verifyValue);
+      }
+      if (res?.user) setUser(res.user);
+      Alert.alert("Verified", `Your ${verifyModal.kind} is now verified ✓`);
+      closeVerify();
+    } catch (e: any) {
+      Alert.alert("Couldn't verify", e?.response?.data?.detail || "Try again");
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
 
   const filteredTags = (() => {
     const q = tagQuery.trim().toLowerCase();
@@ -339,6 +412,7 @@ export default function ProfileSetup() {
               }
               verified={!!user?.email_verified}
               emptyText="Add email"
+              onPress={() => openVerify("email")}
             />
             <AccountRow
               icon="call"
@@ -346,6 +420,7 @@ export default function ProfileSetup() {
               value={user?.phone || null}
               verified={!!user?.phone_verified}
               emptyText="Add phone"
+              onPress={() => openVerify("phone")}
             />
             <AccountRow
               icon="at"
@@ -519,9 +594,11 @@ function AccountRow(props: {
   value: string | null;
   verified: boolean | null;
   emptyText: string;
+  onPress?: () => void;
 }) {
+  const RowWrap: any = props.onPress ? TouchableOpacity : View;
   return (
-    <View style={accountStyles.row}>
+    <RowWrap onPress={props.onPress} style={accountStyles.row} activeOpacity={0.7}>
       <Ionicons name={props.icon} size={18} color={colors.textTertiary} />
       <View style={{ flex: 1 }}>
         <Text style={accountStyles.label}>{props.label}</Text>
@@ -545,8 +622,10 @@ function AccountRow(props: {
           <Ionicons name="alert-circle" size={13} color={colors.textPrimary} />
           <Text style={accountStyles.unverifiedBadgeText}>Verify</Text>
         </View>
+      ) : props.onPress ? (
+        <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
       ) : null}
-    </View>
+    </RowWrap>
   );
 }
 

@@ -725,6 +725,132 @@ class UsernameCheckIn(BaseModel):
     username: str
 
 
+class AccountEmailIn(BaseModel):
+    email: Optional[EmailStr] = None  # if None, uses user's existing email
+
+
+class AccountEmailConfirmIn(BaseModel):
+    code: str
+    email: Optional[EmailStr] = None
+
+
+class AccountPhoneIn(BaseModel):
+    phone: Optional[str] = None
+
+
+class AccountPhoneConfirmIn(BaseModel):
+    code: str
+    phone: Optional[str] = None
+
+
+@api.post("/account/email/send")
+async def account_email_send(body: AccountEmailIn, user: Dict = Depends(get_user)):
+    """Send verification OTP for adding or verifying user's email."""
+    target_email = (body.email or user.get("email") or "").lower()
+    if not target_email or target_email.endswith("@phone.bump.app"):
+        raise HTTPException(400, "No email on file. Provide one to verify.")
+    if "@" not in target_email or "." not in target_email:
+        raise HTTPException(400, "Invalid email")
+    # If new email differs from current, check uniqueness
+    current = (user.get("email") or "").lower()
+    if target_email != current:
+        if await db.users.find_one({"email": target_email, "id": {"$ne": user["id"]}}):
+            raise HTTPException(400, "Email already used by another account")
+    # rate-limit
+    recent = await db.email_otps.find_one({"email": target_email, "purpose": "account"})
+    if recent:
+        created = ensure_aware(recent.get("created_at"))
+        if created and (utcnow() - created).total_seconds() < 30:
+            raise HTTPException(429, "Please wait before requesting another code")
+    code = gen_otp_code()
+    await db.email_otps.update_one(
+        {"email": target_email, "purpose": "account"},
+        {
+            "$set": {
+                "email": target_email,
+                "purpose": "account",
+                "code_hash": hash_otp(code),
+                "expires_at": utcnow() + timedelta(minutes=10),
+                "attempts": 0,
+                "created_at": utcnow(),
+                "user_id": user["id"],
+            }
+        },
+        upsert=True,
+    )
+    sent = await send_email_otp(target_email, code, "signup")
+    resp = {"sent": True}
+    if os.environ.get("DEMO_MODE", "1") == "1" and not sent:
+        resp["dev_code"] = code
+    return resp
+
+
+@api.post("/account/email/confirm")
+async def account_email_confirm(body: AccountEmailConfirmIn, user: Dict = Depends(get_user)):
+    target_email = (body.email or user.get("email") or "").lower()
+    ok = await _consume_email_otp(target_email, body.code, "account")
+    if not ok:
+        raise HTTPException(401, "Invalid or expired code")
+    update: Dict[str, Any] = {"email": target_email, "email_verified": True, "updated_at": utcnow()}
+    await db.users.update_one({"id": user["id"]}, {"$set": update})
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
+    return {"verified": True, "user": u}
+
+
+@api.post("/account/phone/send")
+async def account_phone_send(body: AccountPhoneIn, user: Dict = Depends(get_user)):
+    target_phone = (body.phone or user.get("phone") or "").strip()
+    if not PHONE_RE.match(target_phone):
+        raise HTTPException(400, "Provide a phone in +E.164 format (+14155550100)")
+    # Uniqueness check if changing
+    current = (user.get("phone") or "")
+    if target_phone != current:
+        if await db.users.find_one({"phone": target_phone, "id": {"$ne": user["id"]}}):
+            raise HTTPException(400, "Phone already used by another account")
+    cli = get_twilio()
+    sid = await ensure_verify_service()
+    if not cli or not sid:
+        raise HTTPException(503, "Phone auth unavailable")
+    try:
+        await asyncio.to_thread(
+            lambda: cli.verify.v2.services(sid).verifications.create(to=target_phone, channel="sms")
+        )
+    except Exception as e:
+        logger.error(f"account phone send: {e}")
+        raise HTTPException(400, "Could not send SMS")
+    # Stash pending phone so confirm knows what to save
+    await db.users.update_one(
+        {"id": user["id"]}, {"$set": {"pending_phone": target_phone}}
+    )
+    return {"sent": True}
+
+
+@api.post("/account/phone/confirm")
+async def account_phone_confirm(body: AccountPhoneConfirmIn, user: Dict = Depends(get_user)):
+    target_phone = (body.phone or user.get("pending_phone") or user.get("phone") or "").strip()
+    if not target_phone:
+        raise HTTPException(400, "Missing phone")
+    cli = get_twilio()
+    sid = await ensure_verify_service()
+    if not cli or not sid:
+        raise HTTPException(503, "Phone auth unavailable")
+    try:
+        check = await asyncio.to_thread(
+            lambda: cli.verify.v2.services(sid).verification_checks.create(to=target_phone, code=body.code)
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Verification failed: {e}")
+    if check.status != "approved":
+        raise HTTPException(401, "Invalid code")
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"phone": target_phone, "phone_verified": True, "updated_at": utcnow()},
+         "$unset": {"pending_phone": ""}},
+    )
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
+    return {"verified": True, "user": u}
+
+
 # ----- Endpoint: identifier resolution -----
 @api.post("/auth/identify")
 async def auth_identify(body: IdentifierIn):

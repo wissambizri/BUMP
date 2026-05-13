@@ -40,6 +40,15 @@ export const api = {
   me: () => client.get("/auth/me").then((r) => r.data),
   updateProfile: (data: any) => client.put("/profile", data).then((r) => r.data),
   horoscopes: () => client.get("/profile/horoscopes").then((r) => r.data),
+  // account verification (auth-protected)
+  accountEmailSend: (email?: string) =>
+    client.post("/account/email/send", email ? { email } : {}).then((r) => r.data),
+  accountEmailConfirm: (code: string, email?: string) =>
+    client.post("/account/email/confirm", { code, email }).then((r) => r.data),
+  accountPhoneSend: (phone?: string) =>
+    client.post("/account/phone/send", phone ? { phone } : {}).then((r) => r.data),
+  accountPhoneConfirm: (code: string, phone?: string) =>
+    client.post("/account/phone/confirm", { code, phone }).then((r) => r.data),
   // unified auth (NEW)
   identify: (identifier: string) =>
     client.post("/auth/identify", { identifier }).then((r) => r.data),
