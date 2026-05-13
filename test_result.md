@@ -236,6 +236,87 @@ backend:
           with a fire-and-forget create_task in /likes (both sides) and /messages (recipient), with
           early-return guards when exponent-server-sdk isn't installed or no tokens exist — safe.
 
+  - task: "Account verification — POST /api/account/email/{send,confirm} and /api/account/phone/{send,confirm}"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Wired Verify modal in profile-setup.tsx to these endpoints. Backend exists at lines ~746-851.
+          Need to test (use ava@bump.app / demo1234):
+          1) POST /api/account/email/send  body={email:"new+verify@bump.app"} with Bearer → 200, response has sent:true, may include dev_code (DEMO_MODE).
+          2) POST /api/account/email/send with no body (uses user.email) → if user's email is real (not @phone.bump.app), 200; if user's email ends with @phone.bump.app → 400 "No email on file".
+          3) Rate limit: 2nd call within 30s → 429.
+          4) POST /api/account/email/send with email already used by another user → 400 "Email already used by another account".
+          5) POST /api/account/email/confirm with wrong code → 401 "Invalid or expired code".
+          6) POST /api/account/email/confirm with correct dev_code → 200, response.verified=true, response.user.email_verified=true and user.email updated.
+          7) POST /api/account/phone/send body={phone:"+14155550100"} → 200 sent:true (Twilio). If invalid phone like "415" → 400.
+          8) POST /api/account/phone/send phone already used by another user → 400.
+          9) POST /api/account/phone/confirm with bad code → 401/400.
+          (Phone confirm with real code is hard to test — code review-only is fine for that step.)
+          Auth required on all four endpoints — confirm 401 with no Bearer.
+      - working: true
+        agent: "testing"
+        comment: |
+          Account verification endpoints tested — 24/25 functional checks PASS via
+          /app/backend_test_account_verify.py against
+          https://bump-venue-live.preview.emergentagent.com/api.
+
+          POST /api/account/email/send:
+          - No Authorization header → 401 ✅
+          - With body {email:"verify_<uuid>@bump.app"} as ava → 200 {sent:true, dev_code:"<6-digit>"} (DEMO_MODE) ✅
+          - 2nd call within 30s for same email → 429 "Please wait..." ✅
+          - With email already owned by another user (maya@bump.app) → 400 "Email already used by another account" ✅
+          - No body (uses user's stored ava@bump.app) → 200 {sent:true} ✅
+
+          POST /api/account/email/confirm:
+          - No auth → 401 ✅
+          - Wrong code "000000" → 401 "Invalid or expired code" ✅
+          - Correct dev_code → 200 with response shape {verified:true, user:{...full user obj...}}.
+            Verified response.user.email_verified === true AND response.user.email updated
+            to the new email. Frontend-required response shape is correct. ✅
+          - After confirm, GET /api/auth/me also returns email_verified=true and the new email ✅
+          - (Test cleans up by restoring ava.email → ava@bump.app afterward.)
+
+          POST /api/account/phone/send:
+          - No auth → 401 ✅
+          - Invalid phone "415" → 400 with message containing "E.164" ✅
+          - Valid phone "+14155550100" → 400 "Could not send SMS"  ⚠️
+              CAUSE (operational, NOT a code bug): The Twilio account is in **trial mode**.
+              Backend logs show Twilio error 21608: "Unable to create record: The phone number
+              is unverified. Trial accounts cannot send messages to unverified numbers; verify
+              it at twilio.com/user/account/phone-numbers/verified". The endpoint's error
+              handling is working correctly (catches Twilio exception → 400). To actually
+              receive SMS, MAIN AGENT must either (a) upgrade the Twilio account to a paid
+              plan, or (b) add +14155550100 (or whatever test number) to the Twilio Verified
+              Caller IDs list, or (c) provide a real test phone they own. This is the same
+              operational caveat noted previously for Resend.
+          - Already-used-phone test was SKIPPED because demo user maya@bump.app has no phone
+            on file (no seed data with phone). Logic is identical to email's uniqueness check
+            (find_one({phone, id:{$ne:user.id}}) → 400). Recommend a seeded user with a
+            verified test phone if deeper coverage is desired.
+
+          POST /api/account/phone/confirm:
+          - No auth → 401 ✅
+          - Bad code "000000" with phone="+14155550100" → 400 (Twilio Verify returned 20404
+            "Resource not found" because the trial send above failed; in either case the
+            endpoint returns a 400/401 as the spec allows) ✅
+
+          Response shape verification (critical for frontend profile-setup.tsx):
+          - /api/account/email/confirm response is {verified:true, user:<full user obj
+            without password>}. user contains id, username, email, email_verified, etc.
+            The frontend can call setUser(resp.user) directly. ✅
+          - /api/account/phone/confirm code review shows identical shape {verified:true,
+            user:<full user obj>} on success — same pattern.
+
+          No code defects found. The single failure (phone send to +14155550100) is purely
+          a Twilio trial-account configuration issue.
+
   - task: "Unified auth — POST /api/auth/identify (smart routing)"
     implemented: true
     working: true
@@ -560,3 +641,48 @@ agent_communication:
          - POST /api/push/register valid Expo token → 200 ✅
 
       No issues. Main agent can summarise and finish.
+  - agent: "testing"
+    message: |
+      Account verification endpoints (/api/account/email/{send,confirm} and
+      /api/account/phone/{send,confirm}) tested — 24/25 functional checks PASS via
+      /app/backend_test_account_verify.py against
+      https://bump-venue-live.preview.emergentagent.com/api.
+
+      EMAIL endpoints — all PASS:
+        - POST /account/email/send no auth → 401 ✅
+        - POST /account/email/send {email:"verify_<uuid>@bump.app"} as ava → 200
+          {sent:true, dev_code:"<6-digit>"} (DEMO_MODE) ✅
+        - 2nd call within 30s for same email → 429 ✅
+        - {email:"maya@bump.app"} (already used) → 400 "Email already used by another account" ✅
+        - No body (uses ava's stored email) → 200 ✅
+        - POST /account/email/confirm no auth → 401 ✅
+        - Wrong code → 401 "Invalid or expired code" ✅
+        - Correct dev_code → 200 {verified:true, user:<full user obj>} where
+          user.email_verified === true AND user.email === new email ✅
+        - After confirm, GET /api/auth/me also shows email_verified=true and the new email ✅
+        - Frontend-required response shape {verified, user:{...full user obj minus password}}
+          is exactly what profile-setup.tsx needs. ✅
+
+      PHONE endpoints — code working, ONE failure due to Twilio trial-account config (not a bug):
+        - POST /account/phone/send no auth → 401 ✅
+        - Invalid phone "415" → 400 "Provide a phone in +E.164 format..." ✅
+        - Valid phone "+14155550100" → 400 "Could not send SMS"  ⚠️
+            ROOT CAUSE (operational, NOT a code bug): Twilio account is in trial mode.
+            Backend logs show: "HTTP 403 error: Unable to create record: The phone number
+            is unverified. Trial accounts cannot send messages to unverified numbers"
+            (Twilio error 21608). The endpoint catches the exception and returns 400
+            correctly. To actually deliver SMS, MAIN AGENT must (a) upgrade Twilio to a
+            paid plan, OR (b) add the test number to Twilio's "Verified Caller IDs",
+            OR (c) test with a real phone the dev owns. Same operational pattern as the
+            Resend domain-verification caveat noted earlier.
+        - Already-used-phone test skipped because demo user maya has no phone seeded.
+          Uniqueness logic mirrors email's (find_one({phone, id:{$ne:user.id}}) → 400).
+        - POST /account/phone/confirm no auth → 401 ✅
+        - Bad code "000000" → 400 (Twilio Verify error 20404) ✅
+        - Phone confirm response shape is identical to email confirm: {verified:true,
+          user:<full user obj>} — frontend-friendly. Code review only (real SMS needed
+          for true happy-path).
+
+      No backend code defects. The single test failure (phone send → +14155550100) is
+      purely a Twilio trial-account operational config issue. All response shapes match
+      what profile-setup.tsx expects.

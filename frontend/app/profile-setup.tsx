@@ -441,9 +441,167 @@ export default function ProfileSetup() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={verifyModal.open}
+        transparent
+        animationType="slide"
+        onRequestClose={closeVerify}
+      >
+        <Pressable style={modalStyles.backdrop} onPress={closeVerify}>
+          <Pressable style={modalStyles.sheet} onPress={(e) => e.stopPropagation()}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+            >
+              <View style={modalStyles.handle} />
+              <Text style={modalStyles.title}>
+                {verifyModal.kind === "email" ? "Verify your email" : "Verify your phone"}
+              </Text>
+              <Text style={modalStyles.sub}>
+                {verifyStep === "input"
+                  ? `We'll send a 6-digit code to confirm it's really you.`
+                  : `Enter the 6-digit code sent to ${verifyValue}`}
+              </Text>
+
+              {verifyStep === "input" ? (
+                <>
+                  <TextInput
+                    testID="verify-value-input"
+                    value={verifyValue}
+                    onChangeText={setVerifyValue}
+                    placeholder={
+                      verifyModal.kind === "email" ? "you@example.com" : "+14155550100"
+                    }
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType={
+                      verifyModal.kind === "email" ? "email-address" : "phone-pad"
+                    }
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={modalStyles.input}
+                    editable={!verifyBusy}
+                  />
+                  <TouchableOpacity
+                    testID="verify-send"
+                    style={[modalStyles.cta, verifyBusy && { opacity: 0.6 }]}
+                    onPress={sendVerify}
+                    disabled={verifyBusy}
+                  >
+                    {verifyBusy ? (
+                      <ActivityIndicator color={colors.inverse} />
+                    ) : (
+                      <Text style={modalStyles.ctaText}>Send code</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <TextInput
+                    testID="verify-code-input"
+                    value={verifyCode}
+                    onChangeText={(t) => setVerifyCode(t.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="123456"
+                    placeholderTextColor={colors.textTertiary}
+                    keyboardType="number-pad"
+                    style={[modalStyles.input, { letterSpacing: 8, textAlign: "center", fontSize: 20 }]}
+                    editable={!verifyBusy}
+                    maxLength={6}
+                  />
+                  <TouchableOpacity
+                    testID="verify-confirm"
+                    style={[modalStyles.cta, (verifyBusy || verifyCode.length < 4) && { opacity: 0.6 }]}
+                    onPress={confirmVerify}
+                    disabled={verifyBusy || verifyCode.length < 4}
+                  >
+                    {verifyBusy ? (
+                      <ActivityIndicator color={colors.inverse} />
+                    ) : (
+                      <Text style={modalStyles.ctaText}>Verify</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    testID="verify-back"
+                    onPress={() => setVerifyStep("input")}
+                    disabled={verifyBusy}
+                    style={{ alignSelf: "center", marginTop: 12 }}
+                  >
+                    <Text style={modalStyles.linkText}>← Change {verifyModal.kind}</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              <TouchableOpacity
+                testID="verify-cancel"
+                onPress={closeVerify}
+                disabled={verifyBusy}
+                style={{ alignSelf: "center", marginTop: 16 }}
+              >
+                <Text style={modalStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </KeyboardAvoidingView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
+
+const modalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: colors.void,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 36,
+    borderTopWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.glassBorder,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  title: {
+    color: colors.textPrimary,
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+  },
+  sub: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  input: {
+    backgroundColor: colors.elevated,
+    color: colors.textPrimary,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    fontSize: 15,
+  },
+  cta: {
+    backgroundColor: colors.volt,
+    paddingVertical: 16,
+    borderRadius: 999,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  ctaText: { color: colors.inverse, fontSize: 16, fontWeight: "800" },
+  linkText: { color: colors.volt, fontSize: 13, fontWeight: "700" },
+  cancelText: { color: colors.textTertiary, fontSize: 13 },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
