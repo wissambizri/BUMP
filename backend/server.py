@@ -11,7 +11,10 @@ from typing import List, Optional, Dict, Any
 
 import jwt
 import bcrypt
+import requests
+import random
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -26,10 +29,13 @@ load_dotenv(ROOT_DIR / ".env")
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 SECRET_KEY = os.environ.get("JWT_SECRET", "bump-super-secret-dev-key-change-in-prod-2026")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 30  # 30 days for mobile
 SELFIE_EXPIRE_HOURS = 6
 CHAT_EXPIRE_HOURS = 24
+PLACES_RADIUS_M = 2000  # 2km search radius
+PLACES_CACHE_TTL_SECONDS = 3600  # 1 hour cache per grid cell
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -40,6 +46,188 @@ logger = logging.getLogger("bump")
 app = FastAPI(title="BUMP API")
 api = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
+
+
+# -------------------- GOOGLE PLACES --------------------
+NIGHTLIFE_TYPES = ["night_club", "bar", "restaurant"]
+NIGHTLIFE_KEYWORDS = "nightclub OR bar OR lounge OR pub OR cocktail OR beach club OR rooftop"
+PLACES_NEARBY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+PLACES_PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
+
+
+def _vibe_from_types(types: List[str]) -> str:
+    t = set(types or [])
+    if "night_club" in t:
+        return "Nightclub"
+    if "bar" in t:
+        return "Bar & Lounge"
+    if "restaurant" in t:
+        return "Restaurant"
+    if "cafe" in t:
+        return "Café & Lounge"
+    return "Nightlife"
+
+
+def _kind_from_types(types: List[str]) -> str:
+    t = set(types or [])
+    if "night_club" in t:
+        return "Nightclub"
+    if "bar" in t:
+        return "Bar"
+    if "restaurant" in t:
+        return "Restaurant"
+    if "cafe" in t:
+        return "Café"
+    return "Venue"
+
+
+def fetch_google_places(lat: float, lng: float) -> List[Dict[str, Any]]:
+    """Call Google Places Nearby Search for nightlife venues."""
+    if not GOOGLE_API_KEY:
+        return []
+    try:
+        results: List[Dict[str, Any]] = []
+        # search by keyword to capture broader nightlife (lounges, beach clubs, rooftops)
+        params = {
+            "location": f"{lat},{lng}",
+            "radius": PLACES_RADIUS_M,
+            "keyword": NIGHTLIFE_KEYWORDS,
+            "key": GOOGLE_API_KEY,
+        }
+        r = requests.get(PLACES_NEARBY_URL, params=params, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("status") in ("OK", "ZERO_RESULTS"):
+                results.extend(data.get("results", []))
+            else:
+                logger.warning(f"Places API status={data.get('status')} msg={data.get('error_message')}")
+        # also search by type=night_club for accuracy
+        for ptype in ("night_club", "bar"):
+            params2 = {
+                "location": f"{lat},{lng}",
+                "radius": PLACES_RADIUS_M,
+                "type": ptype,
+                "key": GOOGLE_API_KEY,
+            }
+            try:
+                r2 = requests.get(PLACES_NEARBY_URL, params=params2, timeout=8)
+                if r2.status_code == 200:
+                    d2 = r2.json()
+                    if d2.get("status") in ("OK", "ZERO_RESULTS"):
+                        results.extend(d2.get("results", []))
+            except Exception as e:
+                logger.warning(f"Places type search err: {e}")
+        # dedupe by place_id
+        seen = set()
+        unique = []
+        for p in results:
+            pid = p.get("place_id")
+            if pid and pid not in seen:
+                seen.add(pid)
+                unique.append(p)
+        return unique
+    except Exception as e:
+        logger.error(f"Google Places error: {e}")
+        return []
+
+
+async def upsert_google_venues(lat: float, lng: float) -> int:
+    """Fetch nearby Google venues and upsert into MongoDB. Returns count added."""
+    if not GOOGLE_API_KEY or (lat == 0 and lng == 0):
+        return 0
+    # Cache by grid cell (~1km granularity)
+    cell = f"{round(lat, 2)},{round(lng, 2)}"
+    cache = await db.places_cache.find_one({"cell": cell})
+    now = utcnow()
+    if cache and (now - cache["updated_at"]).total_seconds() < PLACES_CACHE_TTL_SECONDS:
+        return 0
+    places = await asyncio.to_thread(fetch_google_places, lat, lng)
+    if not places:
+        await db.places_cache.update_one(
+            {"cell": cell},
+            {"$set": {"cell": cell, "updated_at": now, "count": 0}},
+            upsert=True,
+        )
+        return 0
+    added = 0
+    for p in places:
+        pid = p.get("place_id")
+        if not pid:
+            continue
+        loc = p.get("geometry", {}).get("location", {})
+        vlat, vlng = loc.get("lat"), loc.get("lng")
+        if vlat is None or vlng is None:
+            continue
+        photo_ref = None
+        photos = p.get("photos") or []
+        if photos:
+            photo_ref = photos[0].get("photo_reference")
+        doc = {
+            "name": p.get("name", "Unknown venue"),
+            "kind": _kind_from_types(p.get("types", [])),
+            "vibe": _vibe_from_types(p.get("types", [])),
+            "city": (p.get("vicinity") or "").split(",")[-1].strip() or "Nearby",
+            "lat": vlat,
+            "lng": vlng,
+            "place_id": pid,
+            "photo_reference": photo_ref,
+            "image": f"/api/venues/photo/{photo_ref}" if photo_ref else "https://images.unsplash.com/photo-1566808907388-c3ce09bc004f?w=900&q=80",
+            "rating": p.get("rating"),
+            "address": p.get("vicinity"),
+            "geofence_radius_m": 250,
+            "source": "google",
+        }
+        # upsert by place_id
+        existing = await db.venues.find_one({"place_id": pid})
+        if existing:
+            await db.venues.update_one(
+                {"place_id": pid},
+                {"$set": {**doc, "updated_at": now}},
+            )
+        else:
+            doc["id"] = str(uuid.uuid4())
+            doc["created_at"] = now
+            await db.venues.insert_one(doc)
+            added += 1
+    await db.places_cache.update_one(
+        {"cell": cell},
+        {"$set": {"cell": cell, "updated_at": now, "count": len(places)}},
+        upsert=True,
+    )
+    if added > 0:
+        logger.info(f"Discovered {added} new venues near {cell}")
+        # Demo mode: distribute demo users into newly-discovered venues so the feed isn't empty
+        if os.environ.get("DEMO_MODE", "1") == "1":
+            await populate_demo_checkins(lat, lng)
+    return added
+
+
+async def populate_demo_checkins(lat: float, lng: float):
+    """Check demo users into nearby venues for demo realism."""
+    nearby_venues = await db.venues.find({}, {"_id": 0}).to_list(50)
+    nearby_venues = [v for v in nearby_venues if haversine_m(lat, lng, v["lat"], v["lng"]) <= PLACES_RADIUS_M * 1.5]
+    if not nearby_venues:
+        return
+    demo_users = await db.users.find(
+        {"email": {"$regex": "@bump.app$"}, "is_admin": {"$ne": True}}, {"_id": 0}
+    ).to_list(50)
+    now = utcnow()
+    for u in demo_users:
+        existing = await db.checkins.find_one({"user_id": u["id"], "expires_at": {"$gt": now}})
+        if existing:
+            continue
+        v = random.choice(nearby_venues)
+        ci = {
+            "id": str(uuid.uuid4()),
+            "user_id": u["id"],
+            "venue_id": v["id"],
+            "selfie_base64": (u.get("photos") or [""])[0],
+            "lat": v["lat"],
+            "lng": v["lng"],
+            "checked_in_at": now,
+            "expires_at": now + timedelta(hours=SELFIE_EXPIRE_HOURS),
+        }
+        await db.checkins.insert_one(ci)
 
 
 # -------------------- HELPERS --------------------
@@ -228,19 +416,62 @@ async def update_profile(body: ProfileIn, user: Dict = Depends(get_user)):
 # -------------------- VENUES --------------------
 @api.get("/venues")
 async def list_venues(lat: float = 0, lng: float = 0, user: Dict = Depends(get_user)):
+    # Discover new venues from Google Places if GPS provided
+    if lat != 0 or lng != 0:
+        try:
+            await upsert_google_venues(lat, lng)
+        except Exception as e:
+            logger.error(f"Places upsert err: {e}")
     venues = await db.venues.find({}, {"_id": 0}).to_list(500)
     now = utcnow()
-    cutoff = now - timedelta(hours=SELFIE_EXPIRE_HOURS)
+    out = []
     for v in venues:
-        v["distance_m"] = int(haversine_m(lat, lng, v["lat"], v["lng"])) if lat or lng else None
+        v["distance_m"] = int(haversine_m(lat, lng, v["lat"], v["lng"])) if (lat or lng) else None
+        # Only return venues within reasonable radius when GPS provided
+        if (lat or lng) and v["distance_m"] is not None and v["distance_m"] > PLACES_RADIUS_M * 2:
+            continue
         active = await db.checkins.count_documents({
             "venue_id": v["id"],
             "expires_at": {"$gt": now},
         })
         v["active_count"] = active
+        out.append(v)
     if lat or lng:
-        venues.sort(key=lambda x: x.get("distance_m") or 0)
-    return venues
+        out.sort(key=lambda x: x.get("distance_m") or 0)
+    else:
+        out.sort(key=lambda x: -(x.get("active_count") or 0))
+    return out
+
+
+@api.get("/venues/photo/{photo_ref}")
+async def venue_photo(photo_ref: str, maxwidth: int = 800):
+    """Proxy Google Places photo so the API key is not exposed."""
+    if not GOOGLE_API_KEY:
+        raise HTTPException(404, "Photo unavailable")
+    try:
+        params = {
+            "maxwidth": maxwidth,
+            "photo_reference": photo_ref,
+            "key": GOOGLE_API_KEY,
+        }
+        r = await asyncio.to_thread(
+            requests.get, PLACES_PHOTO_URL, params=params, stream=True, timeout=10, allow_redirects=True
+        )
+        if r.status_code != 200:
+            raise HTTPException(404, "Photo not found")
+        content_type = r.headers.get("content-type", "image/jpeg")
+
+        def iterator():
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        return StreamingResponse(iterator(), media_type=content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Photo proxy err: {e}")
+        raise HTTPException(500, "Photo fetch failed")
 
 
 @api.get("/venues/{venue_id}")
@@ -620,17 +851,15 @@ SEED_USERS = [
 
 
 async def seed_data():
-    # Venues
-    if await db.venues.count_documents({}) == 0:
-        for v in SEED_VENUES:
-            doc = {**v, "id": str(uuid.uuid4()), "geofence_radius_m": 250, "created_at": utcnow()}
-            await db.venues.insert_one(doc)
-        logger.info("Seeded venues")
+    # NOTE: Venues are no longer seeded; they're discovered dynamically from Google Places
+    # based on user's GPS via /api/venues. See upsert_google_venues().
+    # Remove any pre-existing seeded venues so only Google-discovered venues remain
+    await db.venues.delete_many({"source": {"$ne": "google"}})
 
-    # Demo users
+    # Demo users (created without checkin; populate_demo_checkins will check them in
+    # to newly-discovered Google venues when users request /api/venues with GPS)
     if await db.users.count_documents({"email": {"$regex": "@bump.app$"}}) < len(SEED_USERS):
-        venues = await db.venues.find({}, {"_id": 0}).to_list(20)
-        for i, u in enumerate(SEED_USERS):
+        for u in SEED_USERS:
             exists = await db.users.find_one({"email": u["email"]})
             if exists:
                 continue
@@ -652,21 +881,9 @@ async def seed_data():
                 "created_at": utcnow(),
             }
             await db.users.insert_one(doc)
-            # check them into venue
-            v = venues[i % len(venues)]
-            now = utcnow()
-            ci = {
-                "id": str(uuid.uuid4()),
-                "user_id": uid,
-                "venue_id": v["id"],
-                "selfie_base64": u["photos"][0],
-                "lat": v["lat"],
-                "lng": v["lng"],
-                "checked_in_at": now,
-                "expires_at": now + timedelta(hours=SELFIE_EXPIRE_HOURS),
-            }
-            await db.checkins.insert_one(ci)
-        logger.info("Seeded demo users + checkins")
+        # Clear any stale checkins pointing to deleted seed venues
+        await db.checkins.delete_many({})
+        logger.info("Seeded demo users (no checkins; will populate on first GPS request)")
 
     # Admin
     admin = await db.users.find_one({"email": "admin@bump.app"})

@@ -16,6 +16,7 @@ import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../src/api";
+import { resolveImage } from "../../src/img";
 import { colors } from "../../src/theme";
 import { useAuth } from "../../src/auth";
 
@@ -129,7 +130,7 @@ export default function Home() {
             onPress={() => openVenue(item)}
             style={styles.card}
           >
-            <ImageBackground source={{ uri: item.image }} style={styles.cardBg} imageStyle={{ borderRadius: 24 }}>
+            <ImageBackground source={{ uri: resolveImage(item.image) }} style={styles.cardBg} imageStyle={{ borderRadius: 24 }}>
               <LinearGradient
                 colors={["transparent", "rgba(3,3,5,0.95)"]}
                 style={StyleSheet.absoluteFillObject}

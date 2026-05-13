@@ -14,6 +14,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { api } from "../../src/api";
+import { resolveImage } from "../../src/img";
 import { colors } from "../../src/theme";
 
 export default function VenueDetail() {
@@ -52,7 +53,7 @@ export default function VenueDetail() {
 
   return (
     <View style={styles.root}>
-      <ImageBackground source={{ uri: venue.image }} style={styles.bg}>
+      <ImageBackground source={{ uri: resolveImage(venue.image) }} style={styles.bg}>
         <LinearGradient
           colors={["rgba(3,3,5,0.2)", "rgba(3,3,5,0.95)"]}
           style={StyleSheet.absoluteFillObject}
