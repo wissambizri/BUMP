@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,11 +30,7 @@ export default function MapScreen() {
       </View>
       <View style={[styles.center, { flex: 1, padding: 32 }]}>
         <Ionicons name="map" size={56} color={colors.textTertiary} />
-        <Text style={styles.empty}>
-          {Platform.OS === "web"
-            ? "Map view is available on iOS and Android only."
-            : "Map coming soon."}
-        </Text>
+        <Text style={styles.empty}>Map view is available on iOS and Android only.</Text>
         <Text style={styles.emptySub}>{venues.length} venues found nearby</Text>
       </View>
     </SafeAreaView>
