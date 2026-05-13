@@ -1,0 +1,195 @@
+import { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { useAuth } from "../src/auth";
+import { colors } from "../src/theme";
+
+export default function AuthScreen() {
+  const router = useRouter();
+  const { signIn, signUp } = useAuth();
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [age, setAge] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    if (!email || !password) return Alert.alert("Missing", "Email and password required");
+    setLoading(true);
+    try {
+      if (mode === "login") {
+        await signIn(email.trim().toLowerCase(), password);
+        router.replace("/(tabs)/home");
+      } else {
+        if (!firstName || !age) return Alert.alert("Missing", "First name and age required");
+        const a = parseInt(age, 10);
+        if (isNaN(a) || a < 18) return Alert.alert("Age", "Must be 18+");
+        await signUp({ email: email.trim().toLowerCase(), password, first_name: firstName, age: a });
+        router.replace("/profile-setup");
+      }
+    } catch (e: any) {
+      Alert.alert("Oops", e?.response?.data?.detail || "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fillDemo = () => {
+    setMode("login");
+    setEmail("ava@bump.app");
+    setPassword("demo1234");
+  };
+
+  return (
+    <SafeAreaView style={styles.root}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <Text style={styles.brand}>BUMP</Text>
+          <Text style={styles.tag}>Break the ice nearby.</Text>
+
+          <View style={styles.tabs}>
+            <TouchableOpacity
+              testID="tab-login"
+              onPress={() => setMode("login")}
+              style={[styles.tab, mode === "login" && styles.tabActive]}
+            >
+              <Text style={[styles.tabText, mode === "login" && styles.tabTextActive]}>
+                Log in
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID="tab-signup"
+              onPress={() => setMode("signup")}
+              style={[styles.tab, mode === "signup" && styles.tabActive]}
+            >
+              <Text style={[styles.tabText, mode === "signup" && styles.tabTextActive]}>
+                Sign up
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {mode === "signup" && (
+            <>
+              <TextInput
+                testID="input-first-name"
+                placeholder="First name"
+                placeholderTextColor={colors.textTertiary}
+                value={firstName}
+                onChangeText={setFirstName}
+                style={styles.input}
+              />
+              <TextInput
+                testID="input-age"
+                placeholder="Age (18+)"
+                placeholderTextColor={colors.textTertiary}
+                keyboardType="number-pad"
+                value={age}
+                onChangeText={setAge}
+                style={styles.input}
+              />
+            </>
+          )}
+
+          <TextInput
+            testID="input-email"
+            placeholder="Email"
+            placeholderTextColor={colors.textTertiary}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+            style={styles.input}
+          />
+          <TextInput
+            testID="input-password"
+            placeholder="Password"
+            placeholderTextColor={colors.textTertiary}
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+            style={styles.input}
+          />
+
+          <TouchableOpacity
+            testID="auth-submit"
+            disabled={loading}
+            style={[styles.cta, loading && { opacity: 0.6 }]}
+            onPress={submit}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.ctaText}>
+              {loading ? "..." : mode === "login" ? "Enter" : "Create account"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity testID="demo-fill" onPress={fillDemo} style={{ marginTop: 16 }}>
+            <Text style={styles.demoText}>Try demo: ava@bump.app / demo1234</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.void },
+  scroll: { padding: 24, paddingTop: 48, paddingBottom: 60 },
+  brand: { color: colors.volt, fontSize: 48, fontWeight: "900", letterSpacing: -2 },
+  tag: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    marginBottom: 32,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+  },
+  tabs: {
+    flexDirection: "row",
+    backgroundColor: colors.elevated,
+    borderRadius: 999,
+    padding: 4,
+    marginBottom: 24,
+  },
+  tab: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 999 },
+  tabActive: { backgroundColor: colors.volt },
+  tabText: { color: colors.textSecondary, fontWeight: "600" },
+  tabTextActive: { color: colors.inverse, fontWeight: "800" },
+  input: {
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    color: colors.textPrimary,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    fontSize: 16,
+  },
+  cta: {
+    backgroundColor: colors.volt,
+    paddingVertical: 18,
+    borderRadius: 999,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  ctaText: { color: colors.inverse, fontSize: 17, fontWeight: "800" },
+  demoText: {
+    color: colors.textTertiary,
+    textAlign: "center",
+    fontSize: 12,
+    letterSpacing: 1,
+  },
+});

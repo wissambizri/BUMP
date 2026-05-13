@@ -1,16 +1,26 @@
-import { Text, View, StyleSheet, Image } from "react-native";
-
-const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+import { useEffect } from "react";
+import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import { useAuth } from "../src/auth";
+import { colors } from "../src/theme";
 
 export default function Index() {
-  console.log(EXPO_PUBLIC_BACKEND_URL, "EXPO_PUBLIC_BACKEND_URL");
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) router.replace("/onboarding");
+    else if (!user.gender || !user.photos || user.photos.length === 0)
+      router.replace("/profile-setup");
+    else router.replace("/(tabs)/home");
+  }, [user, loading, router]);
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require("../assets/images/app-image.png")}
-        style={styles.image}
-      />
+    <View style={styles.container} testID="splash-screen">
+      <Text style={styles.logo}>BUMP</Text>
+      <Text style={styles.tag}>Break the ice nearby.</Text>
+      <ActivityIndicator color={colors.volt} style={{ marginTop: 32 }} />
     </View>
   );
 }
@@ -18,13 +28,21 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0c0c0c",
+    backgroundColor: colors.void,
     alignItems: "center",
     justifyContent: "center",
   },
-  image: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "contain",
+  logo: {
+    fontSize: 64,
+    fontWeight: "900",
+    color: colors.volt,
+    letterSpacing: -3,
+  },
+  tag: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginTop: 8,
+    letterSpacing: 2,
+    textTransform: "uppercase",
   },
 });
