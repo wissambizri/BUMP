@@ -100,6 +100,18 @@ export default function Settings() {
           <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
         </TouchableOpacity>
 
+        <TouchableOpacity testID="preview-profile" style={styles.row} onPress={() => router.push("/profile-preview")}>
+          <Ionicons name="eye-outline" size={20} color={colors.volt} />
+          <Text style={[styles.rowText, { flex: 1, color: colors.volt }]}>Preview my profile</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity testID="edit-profile" style={styles.row} onPress={() => router.push("/profile-setup")}>
+          <Ionicons name="create-outline" size={20} color={colors.textSecondary} />
+          <Text style={[styles.rowText, { flex: 1 }]}>Edit profile</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+        </TouchableOpacity>
+
         {user?.is_admin && (
           <TouchableOpacity
             testID="admin-panel"
