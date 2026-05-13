@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   FlatList,
   Dimensions,
   ImageBackground,
@@ -11,7 +10,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors } from "../src/theme";
+import { colors, fonts } from "../src/theme";
+import { GradientButton } from "../src/ui";
 
 const { width } = Dimensions.get("window");
 
@@ -86,16 +86,12 @@ export default function Onboarding() {
             />
           ))}
         </View>
-        <TouchableOpacity
+        <GradientButton
           testID="onboarding-cta"
-          style={styles.cta}
+          label={idx < SLIDES.length - 1 ? "Next" : "Enter BUMP"}
           onPress={next}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.ctaText}>
-            {idx < SLIDES.length - 1 ? "Next" : "Enter the Club"}
-          </Text>
-        </TouchableOpacity>
+          variant="brand"
+        />
       </SafeAreaView>
     </View>
   );
@@ -105,14 +101,16 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
   slide: { flex: 1, padding: 24, paddingBottom: 160 },
   brand: {
-    color: colors.volt,
-    fontSize: 22,
+    color: colors.lime,
+    fontSize: 24,
+    fontFamily: fonts.heading,
     fontWeight: "900",
     letterSpacing: -1,
   },
   title: {
     color: colors.textPrimary,
     fontSize: 52,
+    fontFamily: fonts.heading,
     fontWeight: "900",
     letterSpacing: -2,
     lineHeight: 56,
@@ -120,6 +118,7 @@ const styles = StyleSheet.create({
   sub: {
     color: colors.textSecondary,
     fontSize: 16,
+    fontFamily: fonts.body,
     marginTop: 12,
     lineHeight: 22,
   },
@@ -132,11 +131,4 @@ const styles = StyleSheet.create({
   },
   dots: { flexDirection: "row", justifyContent: "center", marginBottom: 16, gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.2)" },
-  cta: {
-    backgroundColor: colors.volt,
-    paddingVertical: 18,
-    borderRadius: 999,
-    alignItems: "center",
-  },
-  ctaText: { color: colors.inverse, fontSize: 17, fontWeight: "800" },
 });
