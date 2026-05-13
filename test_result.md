@@ -112,15 +112,50 @@ user_problem_statement: |
 backend:
   - task: "Push notifications — POST /api/push/register and send_push helper"
     implemented: true
-    working: "NA"
+    working: true
     file: "backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "POST /api/push/register accepts ExponentPushToken (auth required). DELETE same path unregisters. send_push() uses exponent-server-sdk; wired into POST /api/likes (notifies both users on match) and POST /api/messages (notifies recipient with sender name + preview)."
+      - working: true
+        agent: "testing"
+        comment: |
+          All 22 functional checks PASS for /api/push/register and DELETE /api/push/register against
+          https://bump-venue-live.preview.emergentagent.com/api (script: /app/backend_test.py).
+
+          POST /api/push/register:
+          - No Authorization header → 401 "Missing token" ✅
+          - Invalid Bearer token ("Bearer notreal") → 401 "Invalid token" ✅
+          - Valid JWT + token "not-an-expo-token" → 400 "Invalid Expo push token" ✅
+          - Valid JWT + token "" → 400 "Invalid Expo push token" ✅
+          - Valid JWT + token "ExpoPushToken[xxx]" (wrong prefix) → 400 "Invalid Expo push token" ✅
+          - Happy path (ExponentPushToken[abc123xyz], platform=ios, device_name=iPhone Test) →
+            200 {"registered":true}; MongoDB db.push_tokens has matching doc with user_id=ava's id,
+            platform=ios, device_name set, created_at + updated_at present ✅
+          - Same token re-registered → 200, upsert verified (count==1, device_name updated to "iPhone Test Renamed") ✅
+          - Second distinct token same user → 200, user has 2 docs (multi-device confirmed) ✅
+
+          DELETE /api/push/register?token=...:
+          - No auth → 401 ✅
+          - Auth + existing token → 200 {"ok":true} and doc removed from db.push_tokens ✅
+          - Auth + non-existent token → 200 {"ok":true} (idempotent) ✅
+          - Auth + token that belongs to a different user → 200 {"ok":true} AND other user's
+            document is NOT deleted (delete_one filters by user_id, no info leak) ✅
+
+          Sanity (existing endpoints unaffected):
+          - POST /api/auth/login (ava@bump.app/demo1234) → 200 with token+user ✅
+          - GET /api/auth/me → 200 returns ava (id matches) ✅
+          - POST /api/auth/identify (ava@bump.app) → {"kind":"email","exists":true,"next":"password","has_email":true} ✅
+          - GET /api/venues?lat=40.758&lng=-73.9855 (with auth) → 200, 37 venues ✅
+
+          send_push helper not exercised end-to-end (would require a real Expo push server hit and
+          a paired matched user). Code review: PushClient.publish_multiple is called via asyncio.to_thread
+          with a fire-and-forget create_task in /likes (both sides) and /messages (recipient), with
+          early-return guards when exponent-server-sdk isn't installed or no tokens exist — safe.
 
   - task: "Unified auth — POST /api/auth/identify (smart routing)"
     implemented: true
@@ -279,12 +314,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Unified auth — POST /api/auth/identify (smart routing)"
-    - "Unified auth — POST /api/auth/email/send and /api/auth/email/verify (Resend OTP)"
-    - "Unified auth — POST /api/auth/signup (email + phone signup with username)"
-    - "Unified auth — POST /api/auth/login-unified"
-    - "Unified auth — POST /api/auth/forgot and /api/auth/reset"
-    - "Username availability check — POST /api/auth/username/check"
+    - "Push notifications — POST /api/push/register and send_push helper"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -341,3 +371,30 @@ agent_communication:
       Phone signup + phone login OTP paths NOT exercised (requires real Twilio SMS delivery).
       Twilio Verify Service auto-creation via /auth/forgot phone channel succeeded (returned channel:phone),
       so the integration is wired correctly.
+  - agent: "testing"
+    message: |
+      Push notification register/unregister endpoints fully tested — 22/22 PASS via /app/backend_test.py.
+
+      POST /api/push/register:
+      - Auth required: no header→401, bogus Bearer→401 ✅
+      - Invalid token formats rejected (400 "Invalid Expo push token"): "not-an-expo-token", "",
+        "ExpoPushToken[xxx]" (wrong prefix) ✅
+      - Happy path with ExponentPushToken[abc123xyz] + ios + device_name returns {registered:true},
+        and the MongoDB doc has user_id, platform, device_name, created_at, updated_at ✅
+      - Same token re-registered: upsert works, no duplicate, fields updated ✅
+      - Different token same user: second row created, multi-device confirmed ✅
+
+      DELETE /api/push/register?token=...:
+      - No auth →401 ✅
+      - Existing token + auth →200 {ok:true}, doc removed ✅
+      - Non-existent token →200 (idempotent) ✅
+      - Token belonging to a different user →200 {ok:true} AND the other user's doc is
+        NOT deleted (delete_one filters by user_id) ✅
+
+      Sanity checks pass: /api/auth/login, /api/auth/me, /api/auth/identify, /api/venues all return 200.
+
+      send_push() helper was not exercised end-to-end (no real Expo server hit), but code paths in
+      /api/likes (on match) and /api/messages (recipient push) look correct and gracefully no-op when
+      no tokens are registered or exponent-server-sdk is missing.
+
+      No issues found. Main agent can summarise and finish for this push-notifications task.
