@@ -92,15 +92,17 @@ function createFreshContainer(): string {
   if (typeof document !== "undefined") {
     const div = document.createElement("div");
     div.id = id;
-    // Keep it offscreen but visible enough that reCAPTCHA can layout the challenge popup.
+    // Visible "I'm not a robot" widget — far more stable on mobile Safari than invisible.
+    // Center it near the top so users can see it clearly.
     div.style.position = "fixed";
-    div.style.top = "0";
-    div.style.left = "0";
-    div.style.width = "1px";
-    div.style.height = "1px";
-    div.style.overflow = "hidden";
-    div.style.opacity = "0.01";
-    div.style.pointerEvents = "auto"; // reCAPTCHA still needs interaction
+    div.style.top = "50%";
+    div.style.left = "50%";
+    div.style.transform = "translate(-50%, -50%)";
+    div.style.zIndex = "999999";
+    div.style.background = "white";
+    div.style.padding = "20px";
+    div.style.borderRadius = "12px";
+    div.style.boxShadow = "0 10px 40px rgba(0,0,0,0.5)";
     document.body.appendChild(div);
   }
   _containerId = id;
@@ -113,18 +115,24 @@ export async function sendPhoneOtp(phoneE164: string): Promise<ConfirmationResul
   const auth = getFirebaseAuth();
   const containerId = createFreshContainer();
   _verifier = new RecaptchaVerifier(auth, containerId, {
-    size: "invisible",
+    // "normal" = visible "I'm not a robot" checkbox.
+    // Far more stable on mobile Safari than "invisible".
+    size: "normal",
     callback: () => {
-      // reCAPTCHA solved — sendVerificationCode will fire automatically
+      // User checked the box — Firebase will now proceed to send SMS
     },
     "expired-callback": () => {
-      // reCAPTCHA expired — user will see fresh challenge on next attempt
+      // reCAPTCHA expired — user must re-check next attempt
     },
   });
   try {
-    // Render must succeed before signInWithPhoneNumber to avoid race conditions
     await _verifier.render();
     const confirmation = await signInWithPhoneNumber(auth, phoneE164, _verifier);
+    // Once SMS is sent, we can hide the reCAPTCHA box
+    if (typeof document !== "undefined" && _containerId) {
+      const el = document.getElementById(_containerId);
+      if (el) el.style.display = "none";
+    }
     return confirmation;
   } catch (err) {
     // On any error, clean up so the next attempt starts fresh
