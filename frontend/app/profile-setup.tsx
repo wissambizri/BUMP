@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/auth";
 import { api } from "../src/api";
 import { colors } from "../src/theme";
@@ -33,11 +34,21 @@ const HOROSCOPES: { sign: string; emoji: string }[] = [
   { sign: "Aquarius", emoji: "♒" },
   { sign: "Pisces", emoji: "♓" },
 ];
+const TAG_RE = /^[a-zA-Z0-9 &+]{2,20}$/;
 const INTEREST_OPTIONS = [
-  "House", "Techno", "Hip Hop", "Jazz", "Travel",
-  "Coffee", "Wine", "Cocktails", "Surf", "Yoga",
-  "Photography", "Fashion", "Vinyl", "Art", "Beach",
+  "House", "Techno", "Hip Hop", "Jazz", "R&B", "Reggaeton", "Latin", "Afrobeats",
+  "EDM", "Indie", "Rock", "Soul",
+  "Travel", "Coffee", "Wine", "Cocktails", "Whiskey", "Tequila",
+  "Surf", "Yoga", "Gym", "Running", "Hiking", "Boxing",
+  "Photography", "Fashion", "Vinyl", "Art", "Beach", "Foodie",
+  "Sushi", "Pizza", "Brunch", "Karaoke", "Rooftops", "Speakeasies",
 ];
+
+function toggleInList(list: string[], value: string, max = 8): string[] {
+  if (list.includes(value)) return list.filter((x) => x !== value);
+  if (list.length >= max) return list;
+  return [...list, value];
+}
 
 export default function ProfileSetup() {
   const router = useRouter();
@@ -49,11 +60,39 @@ export default function ProfileSetup() {
   const [photos, setPhotos] = useState<string[]>(user?.photos || []);
   const [horoscope, setHoroscope] = useState<string>(user?.horoscope || "");
   const [hideAge, setHideAge] = useState<boolean>(!!user?.hide_age);
+  const [tagQuery, setTagQuery] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const toggleInterest = (i: string) => {
-    setInterests((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
+  const filteredTags = (() => {
+    const q = tagQuery.trim().toLowerCase();
+    const base = INTEREST_OPTIONS;
+    if (!q) return base;
+    return base.filter((t) => t.toLowerCase().includes(q));
+  })();
+
+  const addCustomTag = () => {
+    const v = tagQuery.trim();
+    if (!v) return;
+    if (!TAG_RE.test(v)) {
+      return Alert.alert("Invalid", "Tags must be 2–20 letters/numbers (& + allowed)");
+    }
+    const normalized = v
+      .split(" ")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+    if (interests.includes(normalized)) {
+      Alert.alert("Already added", `${normalized} is in your vibe.`);
+      setTagQuery("");
+      return;
+    }
+    if (interests.length >= 8) {
+      return Alert.alert("Limit reached", "Max 8 vibe tags");
+    }
+    setInterests([...interests, normalized]);
+    setTagQuery("");
   };
+
+  const toggleInterest = (i: string) => setInterests(toggleInList(interests, i, 8));
 
   const pickPhoto = async () => {
     if (photos.length >= 6) return Alert.alert("Max", "Up to 6 photos");
@@ -219,18 +258,102 @@ export default function ProfileSetup() {
           </View>
 
           <Text style={styles.label}>VIBE TAGS</Text>
-          <View style={styles.chips}>
-            {INTEREST_OPTIONS.map((i) => (
-              <TouchableOpacity
-                key={i}
-                style={[styles.chip, interests.includes(i) && styles.chipActive]}
-                onPress={() => toggleInterest(i)}
-              >
-                <Text style={[styles.chipText, interests.includes(i) && styles.chipTextActive]}>
-                  {i}
-                </Text>
+          <Text style={styles.toggleSub}>
+            Search, tap a chip, or type your own (2–20 chars). Up to 8.
+          </Text>
+          {interests.length > 0 && (
+            <View style={[styles.chips, { marginTop: 12 }]}>
+              {interests.map((i) => (
+                <TouchableOpacity
+                  key={`sel-${i}`}
+                  style={[styles.chip, styles.chipActive]}
+                  onPress={() => toggleInterest(i)}
+                  testID={`selected-tag-${i}`}
+                >
+                  <Text style={[styles.chipText, styles.chipTextActive]}>
+                    {i}
+                  </Text>
+                  <Ionicons
+                    name="close"
+                    size={13}
+                    color={colors.inverse}
+                    style={{ marginLeft: 4 }}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <View style={styles.tagSearchWrap}>
+            <Ionicons name="search" size={16} color={colors.textTertiary} />
+            <TextInput
+              testID="tag-search"
+              value={tagQuery}
+              onChangeText={setTagQuery}
+              placeholder="Search or type a custom tag..."
+              placeholderTextColor={colors.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.tagSearchInput}
+              onSubmitEditing={addCustomTag}
+              returnKeyType="done"
+            />
+            {tagQuery.length > 0 && !filteredTags.some((t) => t.toLowerCase() === tagQuery.trim().toLowerCase()) && (
+              <TouchableOpacity testID="add-custom-tag" onPress={addCustomTag}>
+                <View style={styles.addBtn}>
+                  <Ionicons name="add" size={14} color={colors.inverse} />
+                  <Text style={styles.addBtnText}>Add</Text>
+                </View>
               </TouchableOpacity>
-            ))}
+            )}
+          </View>
+          <View style={[styles.chips, { marginTop: 8 }]}>
+            {filteredTags.length === 0 ? (
+              <Text style={styles.emptyHint}>
+                No matches. Tap <Text style={{ color: colors.volt, fontWeight: "800" }}>Add</Text> to create a custom tag.
+              </Text>
+            ) : (
+              filteredTags.slice(0, 30).map((i) => (
+                <TouchableOpacity
+                  key={i}
+                  testID={`tag-${i}`}
+                  style={[styles.chip, interests.includes(i) && styles.chipActive]}
+                  onPress={() => toggleInterest(i)}
+                >
+                  <Text style={[styles.chipText, interests.includes(i) && styles.chipTextActive]}>
+                    {i}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+
+          <Text style={styles.label}>ACCOUNT</Text>
+          <View style={styles.acctBox}>
+            <AccountRow
+              icon="mail"
+              label="Email"
+              value={
+                user?.email && !String(user.email).endsWith("@phone.bump.app")
+                  ? user.email
+                  : null
+              }
+              verified={!!user?.email_verified}
+              emptyText="Add email"
+            />
+            <AccountRow
+              icon="call"
+              label="Phone"
+              value={user?.phone || null}
+              verified={!!user?.phone_verified}
+              emptyText="Add phone"
+            />
+            <AccountRow
+              icon="at"
+              label="Username"
+              value={user?.username ? `@${user.username}` : null}
+              verified={null}
+              emptyText="Pick a username"
+            />
           </View>
 
           <TouchableOpacity
@@ -297,6 +420,41 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  tagSearchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    marginTop: 12,
+  },
+  tagSearchInput: {
+    flex: 1,
+    color: colors.textPrimary,
+    paddingVertical: 12,
+    fontSize: 14,
+  },
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.volt,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  addBtnText: { color: colors.inverse, fontSize: 12, fontWeight: "800" },
+  emptyHint: { color: colors.textSecondary, fontSize: 12, padding: 8 },
+  acctBox: {
+    backgroundColor: colors.elevated,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    overflow: "hidden",
+  },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -354,3 +512,87 @@ const styles = StyleSheet.create({
   },
   ctaText: { color: colors.inverse, fontSize: 17, fontWeight: "800" },
 });
+
+function AccountRow(props: {
+  icon: any;
+  label: string;
+  value: string | null;
+  verified: boolean | null;
+  emptyText: string;
+}) {
+  return (
+    <View style={accountStyles.row}>
+      <Ionicons name={props.icon} size={18} color={colors.textTertiary} />
+      <View style={{ flex: 1 }}>
+        <Text style={accountStyles.label}>{props.label}</Text>
+        <Text
+          style={[
+            accountStyles.value,
+            !props.value && { color: colors.textTertiary, fontStyle: "italic" },
+          ]}
+          numberOfLines={1}
+        >
+          {props.value || props.emptyText}
+        </Text>
+      </View>
+      {props.verified === true ? (
+        <View style={accountStyles.verifiedBadge}>
+          <Ionicons name="checkmark-circle" size={13} color={colors.inverse} />
+          <Text style={accountStyles.verifiedBadgeText}>VERIFIED</Text>
+        </View>
+      ) : props.verified === false && props.value ? (
+        <View style={accountStyles.unverifiedBadge}>
+          <Ionicons name="alert-circle" size={13} color={colors.textPrimary} />
+          <Text style={accountStyles.unverifiedBadgeText}>Verify</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const accountStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  label: { color: colors.textTertiary, fontSize: 11, letterSpacing: 1 },
+  value: { color: colors.textPrimary, fontSize: 14, fontWeight: "600", marginTop: 2 },
+  verifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: colors.volt,
+    borderRadius: 999,
+  },
+  verifiedBadgeText: {
+    color: colors.inverse,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  unverifiedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: "rgba(255,138,138,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,138,138,0.4)",
+    borderRadius: 999,
+  },
+  unverifiedBadgeText: {
+    color: colors.textPrimary,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+});
+
