@@ -147,3 +147,11 @@ class PhoneVerifyIn(BaseModel):
 # ----- google -----
 class GoogleSessionIn(BaseModel):
     session_id: str
+
+
+# ----- firebase phone -----
+class FirebaseExchangeIn(BaseModel):
+    id_token: str
+    first_name: Optional[str] = None
+    age: Optional[int] = None
+    username: Optional[str] = None

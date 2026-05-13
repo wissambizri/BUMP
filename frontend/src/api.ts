@@ -85,6 +85,15 @@ export const api = {
     client
       .post("/auth/phone/verify", { phone, code, first_name: firstName, age })
       .then((r) => r.data),
+  // Firebase Phone Auth
+  firebaseStatus: () => client.get("/auth/firebase/status").then((r) => r.data),
+  firebaseExchange: (
+    idToken: string,
+    extra?: { first_name?: string; age?: number; username?: string }
+  ) =>
+    client
+      .post("/auth/firebase/exchange", { id_token: idToken, ...(extra || {}) })
+      .then((r) => r.data),
   // push notifications
   pushRegister: (token: string, platform?: string) =>
     client.post("/push/register", { token, platform }).then((r) => r.data),

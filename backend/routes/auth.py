@@ -40,6 +40,7 @@ from models import (
     PhoneSendIn,
     PhoneVerifyIn,
     GoogleSessionIn,
+    FirebaseExchangeIn,
 )
 from services.auth_helpers import (
     USERNAME_RE,
@@ -53,6 +54,7 @@ from services.auth_helpers import (
 )
 from services.resend_service import send_email_otp, send_email_reset_link
 from services.twilio_service import get_twilio, ensure_verify_service
+from services.firebase_service import verify_id_token as fb_verify_id_token, is_available as fb_is_available
 
 router = APIRouter()
 
@@ -488,3 +490,69 @@ async def google_session(body: GoogleSessionIn):
         await db.users.insert_one(user.copy())
     token = make_token(user["id"])
     return {"token": token, "user": clean_user(user)}
+
+
+# -------- Firebase Phone Auth exchange --------
+@router.get("/auth/firebase/status")
+async def firebase_status():
+    return {"available": fb_is_available()}
+
+
+@router.post("/auth/firebase/exchange")
+async def firebase_exchange(body: FirebaseExchangeIn):
+    """Verify a Firebase phone-auth ID token, then create or log in the user
+    keyed by phone number. Returns our own JWT (same shape as /auth/login)."""
+    if not fb_is_available():
+        raise HTTPException(503, "Firebase Auth is not configured on the server")
+    decoded = fb_verify_id_token(body.id_token)
+    if not decoded:
+        raise HTTPException(401, "Invalid Firebase ID token")
+    phone = decoded.get("phone_number")
+    firebase_uid = decoded.get("uid")
+    if not phone:
+        raise HTTPException(400, "Token has no phone_number claim. Use Phone Auth.")
+    user = await db.users.find_one({"phone": phone})
+    if not user:
+        # New signup
+        username = (body.username or "").strip().lower() if body.username else None
+        if username:
+            from services.auth_helpers import USERNAME_RE
+            if not USERNAME_RE.match(username):
+                raise HTTPException(400, "Username must be 3\u201320 letters/digits/underscore")
+            if await db.users.find_one({"username": username}):
+                raise HTTPException(400, "Username taken")
+        uid = str(uuid.uuid4())
+        user = {
+            "id": uid,
+            "email": f"{phone}@phone.bump.app",
+            "phone": phone,
+            "username": username,
+            "password": hash_pwd(_secrets.token_urlsafe(24)),
+            "first_name": (body.first_name or "Friend").strip(),
+            "age": body.age or 21,
+            "gender": None,
+            "interested_in": None,
+            "bio": "",
+            "interests": [],
+            "photos": [],
+            "is_admin": False,
+            "is_hidden": False,
+            "blocked_users": [],
+            "auth_provider": "firebase_phone",
+            "firebase_uid": firebase_uid,
+            "phone_verified": True,
+            "created_at": utcnow(),
+        }
+        await db.users.insert_one(user.copy())
+    else:
+        # Existing login: optionally backfill firebase_uid
+        if firebase_uid and not user.get("firebase_uid"):
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"firebase_uid": firebase_uid, "phone_verified": True}},
+            )
+            user["firebase_uid"] = firebase_uid
+            user["phone_verified"] = True
+    token = make_token(user["id"])
+    return {"token": token, "user": clean_user(user)}
+

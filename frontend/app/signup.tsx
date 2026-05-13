@@ -17,6 +17,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, setToken } from "../src/api";
 import { useAuth } from "../src/auth";
 import { colors } from "../src/theme";
+import {
+  sendPhoneOtp as fbSendPhoneOtp,
+  verifyPhoneOtpAndGetIdToken as fbVerifyOtp,
+  resetFirebasePhoneAuth,
+} from "../src/firebase";
 
 type Step = "method" | "identifier" | "otp" | "profile";
 type Method = "email" | "phone" | null;
@@ -38,6 +43,11 @@ export default function SignupScreen() {
   // otp + scope token
   const [otp, setOtp] = useState("");
   const [scopeToken, setScopeToken] = useState<string | null>(null);
+
+  // Firebase phone (web only): we keep the ConfirmationResult here
+  const fbConfirmRef = useRef<any>(null);
+  const [fbIdToken, setFbIdToken] = useState<string | null>(null);
+  const useFirebasePhone = Platform.OS === "web";
 
   // profile data
   const [firstName, setFirstName] = useState("");
@@ -133,7 +143,24 @@ export default function SignupScreen() {
             return;
           }
         } catch {}
-        await api.phoneSend(identifier.trim());
+        if (useFirebasePhone) {
+          // Web: use Firebase Phone Auth (real SMS via Google, no Twilio trial limits)
+          try {
+            const confirmation = await fbSendPhoneOtp(identifier.trim());
+            fbConfirmRef.current = confirmation;
+          } catch (fe: any) {
+            console.error("Firebase send failed:", fe);
+            Alert.alert(
+              "Couldn't send code",
+              fe?.message || "Firebase Phone Auth failed. Falling back to SMS provider."
+            );
+            // Fallback to Twilio if Firebase fails
+            await api.phoneSend(identifier.trim());
+          }
+        } else {
+          // Native Expo Go: Firebase JS phone auth needs reCAPTCHA (web-only). Use Twilio.
+          await api.phoneSend(identifier.trim());
+        }
       }
       startCooldown();
       setOtp("");
@@ -158,11 +185,21 @@ export default function SignupScreen() {
         setScopeToken(res.scope_token);
         setStep("profile");
       } else {
-        // For phone we'll re-verify in the final signup call; just confirm the code is right by
-        // making a test verification — but Twilio Verify only accepts a code once. So we just
-        // store the code and use it on the final signup call.
-        setScopeToken(otp); // reuse this slot for phone code
-        setStep("profile");
+        // Phone
+        if (useFirebasePhone && fbConfirmRef.current) {
+          // Web Firebase: get an ID token, stash it for the final exchange
+          try {
+            const idToken = await fbVerifyOtp(fbConfirmRef.current, otp);
+            setFbIdToken(idToken);
+            setStep("profile");
+          } catch (fe: any) {
+            Alert.alert("Invalid code", fe?.message || "Try again");
+          }
+        } else {
+          // Twilio path: store the code for the final signup call
+          setScopeToken(otp);
+          setStep("profile");
+        }
       }
     } catch (e: any) {
       Alert.alert("Invalid code", e?.response?.data?.detail || "Try again");
@@ -195,9 +232,22 @@ export default function SignupScreen() {
     if (username && usernameOk && !usernameOk.ok) {
       return Alert.alert("Username", usernameOk.reason || "Taken");
     }
-    if (!scopeToken) return Alert.alert("Error", "Verification expired — start over");
     setBusy(true);
     try {
+      // Phone + Firebase web path: exchange Firebase ID token for our JWT
+      if (method === "phone" && fbIdToken) {
+        const res = await api.firebaseExchange(fbIdToken, {
+          first_name: firstName.trim(),
+          age: a,
+          username: username || undefined,
+        });
+        await setToken(res.token);
+        await refresh();
+        resetFirebasePhoneAuth();
+        router.replace("/profile-setup");
+        return;
+      }
+      if (!scopeToken) return Alert.alert("Error", "Verification expired \u2014 start over");
       const res = await api.signup({
         identifier:
           method === "email" ? identifier.trim().toLowerCase() : identifier.trim(),
@@ -295,7 +345,7 @@ export default function SignupScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.methodTitle}>Continue with phone</Text>
-                  <Text style={styles.methodSub}>SMS code via Twilio</Text>
+                  <Text style={styles.methodSub}>SMS code (Firebase)</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
               </TouchableOpacity>
