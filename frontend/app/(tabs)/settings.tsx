@@ -112,6 +112,18 @@ export default function Settings() {
           <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
         </TouchableOpacity>
 
+        <TouchableOpacity testID="bump-plus" style={styles.row} onPress={() => router.push("/bump-plus")}>
+          <Ionicons name="sparkles" size={20} color={colors.pink} />
+          <Text style={[styles.rowText, { flex: 1, color: colors.pink, fontWeight: "700" }]}>Upgrade to BUMP+</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+        </TouchableOpacity>
+
+        <TouchableOpacity testID="safety-center" style={styles.row} onPress={() => router.push("/safety-center")}>
+          <Ionicons name="shield-half" size={20} color={colors.lime} />
+          <Text style={[styles.rowText, { flex: 1 }]}>Safety Center</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+        </TouchableOpacity>
+
         {user?.is_admin && (
           <TouchableOpacity
             testID="admin-panel"

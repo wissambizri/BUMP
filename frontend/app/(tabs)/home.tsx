@@ -197,10 +197,20 @@ export default function Home() {
                 colors={["transparent", "rgba(3,3,5,0.95)"]}
                 style={StyleSheet.absoluteFillObject}
               />
-              {item.active_count > 0 && (
+              {item.active_count >= 5 ? (
                 <View style={styles.liveBadge}>
                   <View style={styles.liveDot} />
                   <Text style={styles.liveBadgeText}>LIVE · {item.active_count}</Text>
+                </View>
+              ) : item.active_count >= 1 ? (
+                <View style={[styles.liveBadge, { backgroundColor: "rgba(255,200,87,0.18)" }]}>
+                  <View style={[styles.liveDot, { backgroundColor: "#FFC857" }]} />
+                  <Text style={[styles.liveBadgeText, { color: "#FFC857" }]}>WARMING · {item.active_count}</Text>
+                </View>
+              ) : (
+                <View style={[styles.liveBadge, { backgroundColor: "rgba(176,176,191,0.15)" }]}>
+                  <View style={[styles.liveDot, { backgroundColor: colors.textSecondary }]} />
+                  <Text style={[styles.liveBadgeText, { color: colors.textSecondary }]}>QUIET</Text>
                 </View>
               )}
               <View style={styles.cardBottom}>
