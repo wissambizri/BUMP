@@ -74,8 +74,12 @@ export default function MatchScreen() {
         </Animated.View>
 
         <View style={styles.photosWrap}>
-          <Animated.View style={[styles.glowRing, pulseStyle, { backgroundColor: colors.primary }]} />
-          <Animated.View style={[styles.glowRing2, pulseStyle, { backgroundColor: colors.pink }]} />
+          <Animated.View style={[styles.glowRing, pulseStyle, { backgroundColor: "#7B2EFF55" }]} />
+          <Animated.View style={[styles.glowRing2, pulseStyle, { backgroundColor: "#FF4FA355" }]} />
+          <Text style={styles.sparkleTL}>✨</Text>
+          <Text style={styles.sparkleTR}>✨</Text>
+          <Text style={styles.sparkleBL}>💫</Text>
+          <Text style={styles.sparkleBR}>💫</Text>
           <Image
             source={{
               uri:
@@ -126,17 +130,7 @@ const styles = StyleSheet.create({
     lineHeight: 58,
   },
   bumpWord: {
-    color: "#fff",
-    ...(Platform.OS === "web"
-      ? ({
-          // @ts-ignore
-          background: "linear-gradient(135deg, #7B2EFF, #FF4FA3)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          backgroundClip: "text",
-          color: "transparent",
-        } as any)
-      : { color: colors.pink }),
+    color: colors.pink,
   },
   sub: {
     color: colors.textSecondary,
@@ -153,18 +147,24 @@ const styles = StyleSheet.create({
   },
   glowRing: {
     position: "absolute",
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    left: "20%",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    left: "22%",
+    opacity: 0.55,
   },
   glowRing2: {
     position: "absolute",
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    right: "20%",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    right: "22%",
+    opacity: 0.55,
   },
+  sparkleTL: { position: "absolute", top: 10, left: "20%", fontSize: 22, opacity: 0.9 },
+  sparkleTR: { position: "absolute", top: 10, right: "20%", fontSize: 22, opacity: 0.9 },
+  sparkleBL: { position: "absolute", bottom: 10, left: "26%", fontSize: 18, opacity: 0.7 },
+  sparkleBR: { position: "absolute", bottom: 10, right: "26%", fontSize: 18, opacity: 0.7 },
   photo: { width: 140, height: 140, borderRadius: 70, borderWidth: 4 },
   actions: { gap: 8 },
   keep: { alignItems: "center", paddingVertical: 14 },

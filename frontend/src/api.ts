@@ -110,6 +110,7 @@ export const api = {
   feed: (venueId: string) => client.get(`/venues/${venueId}/feed`).then((r) => r.data),
   // like / matches
   like: (data: any) => client.post("/likes", data).then((r) => r.data),
+  likesReceived: () => client.get("/likes/received").then((r) => r.data),
   matches: () => client.get("/matches").then((r) => r.data),
   keep: (matchId: string) => client.post("/matches/keep", { match_id: matchId }).then((r) => r.data),
   // chat

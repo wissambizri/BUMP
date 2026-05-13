@@ -79,6 +79,38 @@ async def like(body: LikeIn, user: Dict = Depends(get_user)):
     return {"matched": True, "match_id": match["id"]}
 
 
+@router.get("/likes/received")
+async def likes_received(user: Dict = Depends(get_user)):
+    """Get pending waves/bumps received from active checkins (not yet matched)."""
+    now = utcnow()
+    # Find likes/his sent TO me where I haven't reciprocated yet
+    incoming = await db.likes.find({
+        "to_user": user["id"],
+        "action": {"$in": ["like", "hi"]},
+    }).sort("created_at", -1).to_list(500)
+    out = []
+    for l in incoming:
+        from_uid = l["from_user"]
+        # Check if I sent a like/hi back (then it's a match, skip)
+        reciprocal = await db.likes.find_one({
+            "from_user": user["id"],
+            "to_user": from_uid,
+            "action": {"$in": ["like", "hi"]},
+        })
+        if reciprocal:
+            continue
+        other = await db.users.find_one({"id": from_uid}, {"_id": 0, "password": 0, "email": 0})
+        if not other:
+            continue
+        out.append({
+            "id": l["id"],
+            "action": l["action"],  # "like" or "hi"
+            "user": other,
+            "created_at": iso(l["created_at"]),
+        })
+    return out
+
+
 @router.get("/matches")
 async def list_matches(user: Dict = Depends(get_user)):
     now = utcnow()
