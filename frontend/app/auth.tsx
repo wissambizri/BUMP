@@ -118,7 +118,13 @@ export default function AuthScreen() {
           startCooldown();
           setStep("signup_phone_otp");
         } else if (kind === "email") {
-          await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+          const r = await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+          if (r?.dev_code) {
+            Alert.alert(
+              "Dev code (sandbox)",
+              `Real email not delivered (Resend sandbox).\nUse this code: ${r.dev_code}`
+            );
+          }
           startCooldown();
           setStep("signup_email_otp");
         }
@@ -257,10 +263,13 @@ export default function AuthScreen() {
       if (step === "signup_phone_otp" || step === "login_phone_otp") {
         await api.phoneSend(identifier.trim());
       } else if (step === "signup_email_otp") {
-        await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+        const r = await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+        if (r?.dev_code) {
+          Alert.alert("Dev code (sandbox)", `Use this code: ${r.dev_code}`);
+        }
       }
       startCooldown();
-      Alert.alert("Sent", "A new code is on the way");
+      if (step !== "signup_email_otp") Alert.alert("Sent", "A new code is on the way");
     } catch (e: any) {
       Alert.alert("Could not resend", e?.response?.data?.detail || "Try again");
     }

@@ -345,8 +345,11 @@ async def forgot_password(body: ResetRequestIn):
         "used": False,
         "created_at": utcnow(),
     })
-    await send_email_reset_link(target_email, token)
-    return {"sent": True, "channel": "email"}
+    sent = await send_email_reset_link(target_email, token)
+    resp = {"sent": True, "channel": "email"}
+    if not sent and demo_mode():
+        resp["dev_token"] = token
+    return resp
 
 
 @router.post("/auth/reset")

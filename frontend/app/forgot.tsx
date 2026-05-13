@@ -38,6 +38,13 @@ export default function ForgotScreen() {
     setBusy(true);
     try {
       const res = await api.forgot(identifier.trim());
+      if (res.dev_token) {
+        setToken_(res.dev_token);
+        Alert.alert(
+          "Dev token (sandbox)",
+          `Real email not delivered (Resend sandbox).\nReset token: ${res.dev_token}\n(prefilled below)`
+        );
+      }
       if (res.channel === "phone") setStep("phone_otp");
       else setStep("email_sent");
     } catch (e: any) {

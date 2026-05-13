@@ -113,7 +113,13 @@ export default function SignupScreen() {
             return;
           }
         } catch {}
-        await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+        const res = await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+        if (res?.dev_code) {
+          Alert.alert(
+            "Dev code (sandbox)",
+            `Real email not delivered (Resend sandbox).\nUse this code to verify: ${res.dev_code}`
+          );
+        }
       } else {
         // Phone — check existence
         try {
@@ -214,10 +220,18 @@ export default function SignupScreen() {
   const resend = async () => {
     if (cooldown > 0) return;
     try {
-      if (method === "email") await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
-      else await api.phoneSend(identifier.trim());
+      if (method === "email") {
+        const r = await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
+        if (r?.dev_code) {
+          Alert.alert("Dev code (sandbox)", `Use this code: ${r.dev_code}`);
+        } else {
+          Alert.alert("Sent", "A new code is on the way");
+        }
+      } else {
+        await api.phoneSend(identifier.trim());
+        Alert.alert("Sent", "A new code is on the way");
+      }
       startCooldown();
-      Alert.alert("Sent", "A new code is on the way");
     } catch (e: any) {
       Alert.alert("Couldn't resend", e?.response?.data?.detail || "Try again");
     }
