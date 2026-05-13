@@ -48,99 +48,120 @@ api = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 
 
-# -------------------- GOOGLE PLACES --------------------
-NIGHTLIFE_TYPES = ["night_club", "bar", "restaurant"]
-NIGHTLIFE_KEYWORDS = "nightclub OR bar OR lounge OR pub OR cocktail OR beach club OR rooftop"
-PLACES_NEARBY_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
-PLACES_PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
+# -------------------- GOOGLE PLACES (New API v1) --------------------
+PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
+PLACES_PHOTO_BASE = "https://places.googleapis.com/v1"
+# New API uses these "primary type" tags. Mix nightlife + restaurants per user choice (c).
+NIGHTLIFE_TYPES = ["night_club", "bar", "wine_bar", "pub", "cocktail_bar"]
+RESTAURANT_TYPES = ["restaurant", "fine_dining_restaurant"]
+FIELD_MASK = ",".join([
+    "places.id",
+    "places.displayName",
+    "places.location",
+    "places.photos",
+    "places.rating",
+    "places.types",
+    "places.primaryType",
+    "places.formattedAddress",
+    "places.shortFormattedAddress",
+])
 
 
 def _vibe_from_types(types: List[str]) -> str:
     t = set(types or [])
     if "night_club" in t:
         return "Nightclub"
-    if "bar" in t:
+    if "cocktail_bar" in t:
+        return "Cocktail Bar"
+    if "wine_bar" in t:
+        return "Wine Bar"
+    if "bar" in t or "pub" in t:
         return "Bar & Lounge"
+    if "rooftop" in t or "lounge_bar" in t:
+        return "Rooftop Lounge"
+    if "live_music_venue" in t:
+        return "Live Music"
+    if "fine_dining_restaurant" in t:
+        return "Fine Dining"
     if "restaurant" in t:
         return "Restaurant"
-    if "cafe" in t:
-        return "Café & Lounge"
     return "Nightlife"
 
 
-def _kind_from_types(types: List[str]) -> str:
+def _kind_from_types(primary: Optional[str], types: List[str]) -> str:
+    p = primary or ""
     t = set(types or [])
-    if "night_club" in t:
+    if "night_club" in t or p == "night_club":
         return "Nightclub"
-    if "bar" in t:
+    if "cocktail_bar" in t or "wine_bar" in t:
+        return "Cocktail Bar"
+    if "bar" in t or "pub" in t:
         return "Bar"
-    if "restaurant" in t:
+    if "restaurant" in t or "fine_dining_restaurant" in t:
         return "Restaurant"
-    if "cafe" in t:
-        return "Café"
     return "Venue"
 
 
-def fetch_google_places(lat: float, lng: float) -> List[Dict[str, Any]]:
-    """Call Google Places Nearby Search for nightlife venues."""
+def _call_places_nearby(lat: float, lng: float, included_types: List[str]) -> List[Dict[str, Any]]:
     if not GOOGLE_API_KEY:
         return []
     try:
-        results: List[Dict[str, Any]] = []
-        # search by keyword to capture broader nightlife (lounges, beach clubs, rooftops)
-        params = {
-            "location": f"{lat},{lng}",
-            "radius": PLACES_RADIUS_M,
-            "keyword": NIGHTLIFE_KEYWORDS,
-            "key": GOOGLE_API_KEY,
+        body = {
+            "includedTypes": included_types,
+            "maxResultCount": 20,
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lng},
+                    "radius": float(PLACES_RADIUS_M),
+                }
+            },
         }
-        r = requests.get(PLACES_NEARBY_URL, params=params, timeout=8)
-        if r.status_code == 200:
-            data = r.json()
-            if data.get("status") in ("OK", "ZERO_RESULTS"):
-                results.extend(data.get("results", []))
-            else:
-                logger.warning(f"Places API status={data.get('status')} msg={data.get('error_message')}")
-        # also search by type=night_club for accuracy
-        for ptype in ("night_club", "bar"):
-            params2 = {
-                "location": f"{lat},{lng}",
-                "radius": PLACES_RADIUS_M,
-                "type": ptype,
-                "key": GOOGLE_API_KEY,
-            }
-            try:
-                r2 = requests.get(PLACES_NEARBY_URL, params=params2, timeout=8)
-                if r2.status_code == 200:
-                    d2 = r2.json()
-                    if d2.get("status") in ("OK", "ZERO_RESULTS"):
-                        results.extend(d2.get("results", []))
-            except Exception as e:
-                logger.warning(f"Places type search err: {e}")
-        # dedupe by place_id
-        seen = set()
-        unique = []
-        for p in results:
-            pid = p.get("place_id")
-            if pid and pid not in seen:
-                seen.add(pid)
-                unique.append(p)
-        return unique
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_API_KEY,
+            "X-Goog-FieldMask": FIELD_MASK,
+        }
+        r = requests.post(PLACES_NEARBY_URL, json=body, headers=headers, timeout=10)
+        if r.status_code != 200:
+            logger.warning(f"Places API HTTP {r.status_code}: {r.text[:200]}")
+            return []
+        return r.json().get("places", []) or []
     except Exception as e:
-        logger.error(f"Google Places error: {e}")
+        logger.error(f"Places nearby err: {e}")
         return []
+
+
+def fetch_google_places(lat: float, lng: float) -> List[Dict[str, Any]]:
+    """Call Google Places Nearby Search (New API) for nightlife venues."""
+    all_results: List[Dict[str, Any]] = []
+    # First: pure nightlife
+    all_results.extend(_call_places_nearby(lat, lng, NIGHTLIFE_TYPES))
+    # Second: restaurants (per user spec)
+    all_results.extend(_call_places_nearby(lat, lng, RESTAURANT_TYPES))
+    # Dedupe by id
+    seen = set()
+    unique = []
+    for p in all_results:
+        pid = p.get("id")
+        if pid and pid not in seen:
+            seen.add(pid)
+            unique.append(p)
+    return unique
 
 
 async def upsert_google_venues(lat: float, lng: float) -> int:
     """Fetch nearby Google venues and upsert into MongoDB. Returns count added."""
     if not GOOGLE_API_KEY or (lat == 0 and lng == 0):
         return 0
-    # Cache by grid cell (~1km granularity)
     cell = f"{round(lat, 2)},{round(lng, 2)}"
     cache = await db.places_cache.find_one({"cell": cell})
     now = utcnow()
-    if cache and (now - cache["updated_at"]).total_seconds() < PLACES_CACHE_TTL_SECONDS:
-        return 0
+    if cache:
+        cu = cache["updated_at"]
+        if cu.tzinfo is None:
+            cu = cu.replace(tzinfo=timezone.utc)
+        if (now - cu).total_seconds() < PLACES_CACHE_TTL_SECONDS:
+            return 0
     places = await asyncio.to_thread(fetch_google_places, lat, lng)
     if not places:
         await db.places_cache.update_one(
@@ -151,33 +172,42 @@ async def upsert_google_venues(lat: float, lng: float) -> int:
         return 0
     added = 0
     for p in places:
-        pid = p.get("place_id")
+        pid = p.get("id")
         if not pid:
             continue
-        loc = p.get("geometry", {}).get("location", {})
-        vlat, vlng = loc.get("lat"), loc.get("lng")
+        loc = p.get("location") or {}
+        vlat, vlng = loc.get("latitude"), loc.get("longitude")
         if vlat is None or vlng is None:
             continue
-        photo_ref = None
+        photo_name = None
         photos = p.get("photos") or []
         if photos:
-            photo_ref = photos[0].get("photo_reference")
+            # New API photo name format: "places/PLACE_ID/photos/PHOTO_ID"
+            photo_name = photos[0].get("name")
+        display = (p.get("displayName") or {}).get("text") or "Unknown venue"
+        types = p.get("types") or []
+        primary = p.get("primaryType")
+        addr = p.get("shortFormattedAddress") or p.get("formattedAddress") or ""
+        city = addr.split(",")[-2].strip() if addr.count(",") >= 1 else (addr.split(",")[-1].strip() or "Nearby")
+        # Encode photo name in proxy URL (URL-safe base64 to preserve "/")
+        import base64
+        photo_token = base64.urlsafe_b64encode(photo_name.encode()).decode() if photo_name else None
         doc = {
-            "name": p.get("name", "Unknown venue"),
-            "kind": _kind_from_types(p.get("types", [])),
-            "vibe": _vibe_from_types(p.get("types", [])),
-            "city": (p.get("vicinity") or "").split(",")[-1].strip() or "Nearby",
-            "lat": vlat,
-            "lng": vlng,
+            "name": display,
+            "kind": _kind_from_types(primary, types),
+            "vibe": _vibe_from_types(types),
+            "city": city,
+            "lat": float(vlat),
+            "lng": float(vlng),
             "place_id": pid,
-            "photo_reference": photo_ref,
-            "image": f"/api/venues/photo/{photo_ref}" if photo_ref else "https://images.unsplash.com/photo-1566808907388-c3ce09bc004f?w=900&q=80",
+            "photo_name": photo_name,
+            "image": f"/api/venues/photo/{photo_token}" if photo_token else "",
             "rating": p.get("rating"),
-            "address": p.get("vicinity"),
+            "address": addr,
+            "types": types,
             "geofence_radius_m": 250,
             "source": "google",
         }
-        # upsert by place_id
         existing = await db.venues.find_one({"place_id": pid})
         if existing:
             await db.venues.update_one(
@@ -196,7 +226,6 @@ async def upsert_google_venues(lat: float, lng: float) -> int:
     )
     if added > 0:
         logger.info(f"Discovered {added} new venues near {cell}")
-        # Demo mode: distribute demo users into newly-discovered venues so the feed isn't empty
         if os.environ.get("DEMO_MODE", "1") == "1":
             await populate_demo_checkins(lat, lng)
     return added
@@ -443,21 +472,33 @@ async def list_venues(lat: float = 0, lng: float = 0, user: Dict = Depends(get_u
     return out
 
 
-@api.get("/venues/photo/{photo_ref}")
-async def venue_photo(photo_ref: str, maxwidth: int = 800):
-    """Proxy Google Places photo so the API key is not exposed."""
+@api.get("/venues/photo/{photo_token}")
+async def venue_photo(photo_token: str, maxwidth: int = 800):
+    """Proxy Google Places (New API) photo so the API key is not exposed.
+    photo_token is urlsafe-base64 of the place's photo `name` field
+    (e.g., 'places/{place_id}/photos/{photo_id}').
+    """
     if not GOOGLE_API_KEY:
         raise HTTPException(404, "Photo unavailable")
     try:
+        import base64
+        # decode token back to photo name; add padding if missing
+        pad = "=" * (-len(photo_token) % 4)
+        photo_name = base64.urlsafe_b64decode(photo_token + pad).decode()
+    except Exception:
+        raise HTTPException(400, "Invalid photo token")
+    # New API: GET https://places.googleapis.com/v1/{photo_name}/media?maxWidthPx=...&key=...
+    url = f"{PLACES_PHOTO_BASE}/{photo_name}/media"
+    try:
         params = {
-            "maxwidth": maxwidth,
-            "photo_reference": photo_ref,
+            "maxWidthPx": maxwidth,
             "key": GOOGLE_API_KEY,
         }
         r = await asyncio.to_thread(
-            requests.get, PLACES_PHOTO_URL, params=params, stream=True, timeout=10, allow_redirects=True
+            requests.get, url, params=params, stream=True, timeout=12, allow_redirects=True
         )
         if r.status_code != 200:
+            logger.warning(f"Photo fetch {r.status_code}: {r.text[:120] if hasattr(r,'text') else ''}")
             raise HTTPException(404, "Photo not found")
         content_type = r.headers.get("content-type", "image/jpeg")
 
