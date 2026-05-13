@@ -12,7 +12,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../src/auth";
+import { api } from "../src/api";
 import { colors } from "../src/theme";
 
 export default function AuthScreen() {
@@ -140,6 +142,68 @@ export default function AuthScreen() {
           <TouchableOpacity testID="demo-fill" onPress={fillDemo} style={{ marginTop: 16 }}>
             <Text style={styles.demoText}>Try demo: ava@bump.app / demo1234</Text>
           </TouchableOpacity>
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <TouchableOpacity
+            testID="google-signin"
+            style={styles.socialBtn}
+            onPress={async () => {
+              try {
+                const WebBrowser = await import("expo-web-browser");
+                const Linking = await import("expo-linking");
+                const SecureStore = await import("expo-secure-store");
+                const redirect = Platform.OS === "web"
+                  ? (typeof window !== "undefined" ? window.location.origin + "/" : "")
+                  : Linking.createURL("/auth");
+                const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirect)}`;
+                if (Platform.OS === "web" && typeof window !== "undefined") {
+                  window.location.href = authUrl;
+                  return;
+                }
+                const result: any = await WebBrowser.openAuthSessionAsync(authUrl, redirect);
+                if (result?.type !== "success" || !result.url) return;
+                const url = result.url;
+                const hash = url.includes("#") ? url.split("#")[1] : "";
+                const q = url.includes("?") ? url.split("?")[1].split("#")[0] : "";
+                const params = new URLSearchParams(hash || q);
+                const sid = params.get("session_id");
+                if (!sid) return Alert.alert("Auth", "Missing session_id");
+                const res = await api.googleSession(sid);
+                const { setToken: setT } = await import("../src/api");
+                await setT(res.token);
+                await SecureStore.setItemAsync("bump_token", res.token).catch(() => {});
+                router.replace(res.user?.gender ? "/(tabs)/home" : "/profile-setup");
+              } catch (e: any) {
+                Alert.alert("Google", e?.message || "Failed");
+              }
+            }}
+          >
+            <Ionicons name="logo-google" size={18} color={colors.textPrimary} />
+            <Text style={styles.socialText}>Continue with Google</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            testID="apple-signin"
+            style={styles.socialBtn}
+            onPress={() => Alert.alert("Apple Sign-In", "Available in production iOS build.")}
+          >
+            <Ionicons name="logo-apple" size={20} color={colors.textPrimary} />
+            <Text style={styles.socialText}>Continue with Apple</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            testID="phone-signin"
+            style={styles.socialBtn}
+            onPress={() => router.push("/auth-phone")}
+          >
+            <Ionicons name="call" size={18} color={colors.textPrimary} />
+            <Text style={styles.socialText}>Continue with Phone</Text>
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -192,4 +256,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 1,
   },
+  divider: { flexDirection: "row", alignItems: "center", marginVertical: 24, gap: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.glassBorder },
+  dividerText: { color: colors.textTertiary, fontSize: 11, letterSpacing: 2, fontWeight: "700" },
+  socialBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    paddingVertical: 16,
+    borderRadius: 999,
+    marginBottom: 10,
+  },
+  socialText: { color: colors.textPrimary, fontSize: 15, fontWeight: "700" },
 });

@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../src/api";
 import { colors } from "../../src/theme";
 
@@ -17,6 +19,7 @@ export default function Matches() {
   const router = useRouter();
   const [matches, setMatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -54,10 +57,28 @@ export default function Matches() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <View style={{ padding: 24 }}>
+      <View style={{ padding: 24, paddingBottom: 8 }}>
         <Text style={styles.kicker}>YOUR</Text>
         <Text style={styles.h1}>Bumps</Text>
       </View>
+      {matches.length > 0 && (
+        <View style={styles.searchRow}>
+          <Ionicons name="search" size={16} color={colors.textTertiary} />
+          <TextInput
+            testID="matches-search"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search by name..."
+            placeholderTextColor={colors.textTertiary}
+            style={styles.searchInput}
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery("")}>
+              <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
       {matches.length === 0 ? (
         <View style={[styles.center, { flex: 1 }]}>
           <Text style={styles.emptyTitle}>No bumps yet</Text>
@@ -65,7 +86,10 @@ export default function Matches() {
         </View>
       ) : (
         <FlatList
-          data={matches}
+          data={matches.filter((m) =>
+            !query.trim() ||
+            (m.user?.first_name || "").toLowerCase().includes(query.trim().toLowerCase())
+          )}
           keyExtractor={(m) => m.match_id}
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}
           renderItem={({ item }) => (
@@ -108,6 +132,20 @@ const styles = StyleSheet.create({
   h1: { color: colors.textPrimary, fontSize: 36, fontWeight: "900", letterSpacing: -1.5, marginTop: 6 },
   emptyTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: "700" },
   emptySub: { color: colors.textSecondary, marginTop: 8, fontSize: 14 },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 14,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  searchInput: { flex: 1, color: colors.textPrimary, fontSize: 14, padding: 0 },
   row: {
     flexDirection: "row",
     alignItems: "center",
