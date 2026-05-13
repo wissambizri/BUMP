@@ -549,6 +549,34 @@ frontend:
         comment: |
           Verified: navigation from auth login_password step via 'Forgot password?' link passes ?identifier=ava@bump.app, forgot screen pre-fills the identifier and shows 'Forgot password.' headline. Tapping 'Send reset link' transitions to 'Check your email.' step with forgot-token + forgot-new-password-email inputs visible. Backend POST /auth/forgot → 200. Reset confirmation flow itself was not exercised (would need a token from DB or real email delivery — Resend in sandbox still scoped to verified address per main agent).
 
+  - task: "Radar Swipe Deck (app/feed/[id].tsx)"
+    implemented: true
+    working: true
+    file: "frontend/app/feed/[id].tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: |
+          Rebuilt the venue radar/live feed as a full-bleed Tinder-style swipe deck matching the neon mockup:
+          - Header: "RADAR · N live" kicker (lime) + venue name + back/leave buttons
+          - Glassmorphism card (28px radius, 580px tall) with full-bleed selfie photo
+          - LIVE badge (pink) top-left, info-icon top-right (no overlap)
+          - Gradient overlay bottom 65% for legibility, name/age/zodiac/bio/vibe chips
+          - Pan-responder swipe gestures: drag horizontally → translate + rotate tilt
+          - Swipe overlay labels: BUMP (pink) on right swipe, NAH (white) on left
+          - Threshold: min(width*0.28, 140px) or velocity > 0.5 triggers like/pass
+          - Spring-back animation if released below threshold
+          - Behind-card preview (next user) at 0.94 scale + 16px y-offset
+          - Action row: Nah (X), Wave (👋), BUMP (💥, gradient pink→purple)
+          - Empty state: 🌙 emoji + "That's everyone for now" + Refresh GradientButton
+          - Match flow: on like+match → router.push('/match', {matchId, theirName, theirPhoto})
+          Verified visually on web preview at mobile viewport — all action buttons fire correct
+          API endpoints (POST /api/likes), card transitions cleanly between users, no crashes,
+          swipe overlay flashes correctly during off-screen animation.
+
 metadata:
   created_by: "main_agent"
   version: "2.0"
