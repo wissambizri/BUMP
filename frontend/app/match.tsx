@@ -1,95 +1,111 @@
-import { useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useRef } from "react";
+import { View, Text, StyleSheet, Image, TouchableOpacity, Animated, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withRepeat,
-  withSequence,
-  withTiming,
-  withDelay,
-} from "react-native-reanimated";
-import { colors } from "../src/theme";
+import { useAuth } from "../src/auth";
+import { colors, fonts } from "../src/theme";
+import { GradientButton } from "../src/ui";
 
-export default function Match() {
-  const { matchId, theirName, theirPhoto } = useLocalSearchParams<{
-    matchId: string;
-    theirName: string;
-    theirPhoto: string;
+export default function MatchScreen() {
+  const params = useLocalSearchParams<{
+    matchId?: string;
+    theirName?: string;
+    theirPhoto?: string;
   }>();
   const router = useRouter();
-
-  const scale = useSharedValue(0);
-  const titleScale = useSharedValue(0);
-  const ring = useSharedValue(1);
+  const { user } = useAuth();
+  const scale = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    scale.value = withSpring(1, { damping: 8 });
-    titleScale.value = withDelay(200, withSpring(1, { damping: 6 }));
-    ring.value = withRepeat(
-      withSequence(withTiming(1.2, { duration: 800 }), withTiming(1, { duration: 800 })),
-      -1,
-      true
-    );
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 5,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1400, useNativeDriver: true }),
+      ])
+    ).start();
   }, []);
 
-  const avatarStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-  const titleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: titleScale.value }],
-  }));
-  const ringStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: ring.value }],
-    opacity: 2 - ring.value,
-  }));
+  const pulseStyle = {
+    opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }),
+    transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.1] }) }],
+  };
+
+  const goChat = () => {
+    if (params.matchId) {
+      router.replace(`/chat/${params.matchId}`);
+    } else {
+      router.replace("/(tabs)/matches");
+    }
+  };
+  const keepBrowsing = () => router.replace("/(tabs)/home");
 
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={[colors.void, "#1a0014", colors.void]}
+        colors={["#7B2EFF66", "transparent"] as any}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 0.6 }}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <LinearGradient
+        colors={["#FF4FA344", "transparent"] as any}
+        start={{ x: 0.5, y: 1 }}
+        end={{ x: 0.5, y: 0.4 }}
         style={StyleSheet.absoluteFillObject}
       />
       <SafeAreaView style={styles.safe}>
-        <View style={{ flex: 1 }} />
+        <Animated.View style={[styles.heroBlock, { transform: [{ scale }] }]}>
+          <Text style={styles.fire}>💥</Text>
+          <Text style={styles.title}>
+            It's a{"\n"}
+            <Text style={styles.bumpWord}>BUMP!</Text>
+          </Text>
+          <Text style={styles.sub}>
+            You and {params.theirName || "someone"} bumped each other.
+          </Text>
+        </Animated.View>
 
-        <Animated.Text style={[styles.kicker, titleStyle]}>BOTH OF YOU TAPPED</Animated.Text>
-        <Animated.Text style={[styles.title, titleStyle]} testID="match-title">
-          IT&apos;S A BUMP
-        </Animated.Text>
-        <Animated.Text style={[styles.boom, titleStyle]}>💥</Animated.Text>
-
-        <View style={styles.avatarRow}>
-          <Animated.View style={[styles.ringWrap, ringStyle]}>
-            <View style={styles.ring} />
-          </Animated.View>
-          <Animated.View style={[styles.avatarContainer, avatarStyle]}>
-            <Image source={{ uri: String(theirPhoto || "") }} style={styles.avatar} />
-          </Animated.View>
+        <View style={styles.photosWrap}>
+          <Animated.View style={[styles.glowRing, pulseStyle, { backgroundColor: colors.primary }]} />
+          <Animated.View style={[styles.glowRing2, pulseStyle, { backgroundColor: colors.pink }]} />
+          <Image
+            source={{
+              uri:
+                user?.photos?.[0] ||
+                "https://images.unsplash.com/photo-1546456073-92b9f0a8d413?w=400&q=80",
+            }}
+            style={[styles.photo, { borderColor: colors.primary }]}
+          />
+          <Image
+            source={{
+              uri:
+                params.theirPhoto ||
+                "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&q=80",
+            }}
+            style={[styles.photo, { borderColor: colors.pink, marginLeft: -32 }]}
+          />
         </View>
 
-        <Text style={styles.subtitle}>
-          You and <Text style={{ color: colors.volt }}>{theirName}</Text> are connected.
-        </Text>
-        <Text style={styles.note}>Chat unlocks for 24h. Make it count.</Text>
-
-        <View style={{ flex: 1 }} />
-
-        <TouchableOpacity
-          testID="match-chat-btn"
-          style={styles.cta}
-          onPress={() => router.replace(`/chat/${matchId}`)}
-        >
-          <Text style={styles.ctaText}>Say hi →</Text>
-        </TouchableOpacity>
-        <TouchableOpacity testID="match-later-btn" onPress={() => router.replace("/(tabs)/matches")}>
-          <Text style={styles.later}>Later</Text>
-        </TouchableOpacity>
+        <View style={styles.actions}>
+          <GradientButton
+            label="Say hi 👋"
+            onPress={goChat}
+            variant="brand"
+            testID="match-sayhi"
+            style={{ width: "100%" }}
+          />
+          <TouchableOpacity onPress={keepBrowsing} style={styles.keep} testID="match-keep">
+            <Text style={styles.keepText}>Keep browsing</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -97,49 +113,60 @@ export default function Match() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
-  safe: { flex: 1, padding: 24, alignItems: "center" },
-  kicker: { color: colors.fuchsia, fontSize: 12, letterSpacing: 3, fontWeight: "800" },
+  safe: { flex: 1, padding: 24, justifyContent: "space-between" },
+  heroBlock: { alignItems: "center", marginTop: 16 },
+  fire: { fontSize: 64, marginBottom: 8 },
   title: {
-    color: colors.textPrimary,
-    fontSize: 56,
+    color: "#fff",
+    fontFamily: fonts.heading,
     fontWeight: "900",
-    letterSpacing: -2,
-    marginTop: 8,
+    fontSize: 56,
+    letterSpacing: -2.5,
+    textAlign: "center",
+    lineHeight: 58,
   },
-  boom: { fontSize: 64, marginTop: 4 },
-  avatarRow: {
-    marginTop: 32,
-    width: 200,
-    height: 200,
+  bumpWord: {
+    color: "#fff",
+    ...(Platform.OS === "web"
+      ? ({
+          // @ts-ignore
+          background: "linear-gradient(135deg, #7B2EFF, #FF4FA3)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          color: "transparent",
+        } as any)
+      : { color: colors.pink }),
+  },
+  sub: {
+    color: colors.textSecondary,
+    fontFamily: fonts.body,
+    fontSize: 15,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  photosWrap: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    height: 220,
   },
-  ringWrap: { position: "absolute", width: 200, height: 200 },
-  ring: {
-    flex: 1,
+  glowRing: {
+    position: "absolute",
+    width: 200,
+    height: 200,
     borderRadius: 100,
-    borderWidth: 2,
-    borderColor: colors.fuchsia,
+    left: "20%",
   },
-  avatarContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    overflow: "hidden",
-    borderWidth: 4,
-    borderColor: colors.volt,
+  glowRing2: {
+    position: "absolute",
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    right: "20%",
   },
-  avatar: { width: "100%", height: "100%", backgroundColor: colors.elevated },
-  subtitle: { color: colors.textPrimary, fontSize: 18, marginTop: 32, fontWeight: "600" },
-  note: { color: colors.textSecondary, marginTop: 8, fontSize: 13 },
-  cta: {
-    width: "100%",
-    backgroundColor: colors.volt,
-    paddingVertical: 18,
-    borderRadius: 999,
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  ctaText: { color: colors.inverse, fontSize: 17, fontWeight: "800" },
-  later: { color: colors.textSecondary, fontSize: 14, paddingVertical: 10 },
+  photo: { width: 140, height: 140, borderRadius: 70, borderWidth: 4 },
+  actions: { gap: 8 },
+  keep: { alignItems: "center", paddingVertical: 14 },
+  keepText: { color: colors.textSecondary, fontFamily: fonts.bodyBold, fontWeight: "700", fontSize: 14 },
 });

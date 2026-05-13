@@ -67,6 +67,38 @@ export default function Settings() {
           {user?.is_admin && <Text style={styles.adminBadge}>ADMIN</Text>}
         </View>
 
+        <View style={styles.statsRow}>
+          <View style={styles.statCol}>
+            <Text style={[styles.statVal, { color: colors.pink }]}>0</Text>
+            <Text style={styles.statLabel}>Bumps</Text>
+          </View>
+          <View style={styles.statDiv} />
+          <View style={styles.statCol}>
+            <Text style={[styles.statVal, { color: colors.primary }]}>0</Text>
+            <Text style={styles.statLabel}>Matches</Text>
+          </View>
+          <View style={styles.statDiv} />
+          <View style={styles.statCol}>
+            <Text style={[styles.statVal, { color: colors.lime }]}>0</Text>
+            <Text style={styles.statLabel}>Venues</Text>
+          </View>
+        </View>
+
+        {user?.email_verified && (
+          <View style={styles.badgesRow}>
+            <View style={styles.verifyBadge}>
+              <Ionicons name="checkmark-circle" size={14} color={colors.lime} />
+              <Text style={styles.verifyText}>Email verified</Text>
+            </View>
+            {user?.phone_verified && (
+              <View style={styles.verifyBadge}>
+                <Ionicons name="phone-portrait" size={12} color={colors.lime} />
+                <Text style={styles.verifyText}>Phone verified</Text>
+              </View>
+            )}
+          </View>
+        )}
+
         <TouchableOpacity
           testID="edit-profile"
           style={styles.row}
@@ -205,4 +237,33 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 32,
   },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.elevated,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+  },
+  statCol: { flex: 1, alignItems: "center" },
+  statDiv: { width: 1, height: 32, backgroundColor: colors.glassBorder },
+  statVal: { fontSize: 26, fontWeight: "900", letterSpacing: -0.8 },
+  statLabel: { color: colors.textSecondary, fontSize: 11, marginTop: 4, letterSpacing: 0.4 },
+  badgesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 18 },
+  verifyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(200,255,61,0.10)",
+    borderColor: "rgba(200,255,61,0.30)",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  verifyText: { color: colors.lime, fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
 });
