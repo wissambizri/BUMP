@@ -149,17 +149,18 @@ export default function SignupScreen() {
             const confirmation = await fbSendPhoneOtp(identifier.trim());
             fbConfirmRef.current = confirmation;
           } catch (fe: any) {
-            console.error("Firebase send failed:", fe);
-            Alert.alert(
-              "Couldn't send code",
-              fe?.message || "Firebase Phone Auth failed. Falling back to SMS provider."
-            );
-            // Fallback to Twilio if Firebase fails
-            await api.phoneSend(identifier.trim());
+            Alert.alert("Couldn't send code", fe?.message || "Try again");
+            setBusy(false);
+            return;
           }
         } else {
-          // Native Expo Go: Firebase JS phone auth needs reCAPTCHA (web-only). Use Twilio.
-          await api.phoneSend(identifier.trim());
+          // Native Expo Go: Firebase JS phone auth needs reCAPTCHA (web-only).
+          Alert.alert(
+            "Use the web preview",
+            "Phone signup isn't supported in Expo Go yet (it requires an EAS native build). Open BUMP in your browser to sign up by phone, or use the email tab."
+          );
+          setBusy(false);
+          return;
         }
       }
       startCooldown();
@@ -277,13 +278,17 @@ export default function SignupScreen() {
         } else {
           Alert.alert("Sent", "A new code is on the way");
         }
-      } else {
-        await api.phoneSend(identifier.trim());
+      } else if (useFirebasePhone) {
+        const confirmation = await fbSendPhoneOtp(identifier.trim());
+        fbConfirmRef.current = confirmation;
         Alert.alert("Sent", "A new code is on the way");
+      } else {
+        Alert.alert("Use the web preview", "Phone signup isn't supported in Expo Go yet.");
+        return;
       }
       startCooldown();
     } catch (e: any) {
-      Alert.alert("Couldn't resend", e?.response?.data?.detail || "Try again");
+      Alert.alert("Couldn't resend", e?.message || e?.response?.data?.detail || "Try again");
     }
   };
 

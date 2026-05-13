@@ -17,6 +17,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, setToken } from "../src/api";
 import { useAuth } from "../src/auth";
 import { colors } from "../src/theme";
+import {
+  sendPhoneOtp as fbSendPhoneOtp,
+  verifyPhoneOtpAndGetIdToken as fbVerifyOtp,
+  resetFirebasePhoneAuth,
+} from "../src/firebase";
+
+const isWeb = Platform.OS === "web";
 
 type Step =
   | "identifier"
@@ -68,6 +75,7 @@ export default function AuthScreen() {
   const [signupPassword, setSignupPassword] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
   const cooldownTimer = useRef<any>(null);
+  const fbConfirmRef = useRef<any>(null);
 
   const idKind = useMemo(() => detectKind(identifier), [identifier]);
 
@@ -106,7 +114,22 @@ export default function AuthScreen() {
       setResolved(res);
       if (res.exists) {
         if (res.next === "otp_phone") {
-          await api.phoneSend(identifier.trim());
+          if (!isWeb) {
+            Alert.alert(
+              "Use the web preview",
+              "Phone login on Expo Go isn't supported yet (needs an EAS native build). Open BUMP in your browser, or log in with email/username."
+            );
+            setBusy(false);
+            return;
+          }
+          try {
+            const confirmation = await fbSendPhoneOtp(identifier.trim());
+            fbConfirmRef.current = confirmation;
+          } catch (fe: any) {
+            Alert.alert("Couldn't send code", fe?.message || "Try again");
+            setBusy(false);
+            return;
+          }
           startCooldown();
           setStep("login_phone_otp");
         } else {
@@ -114,7 +137,22 @@ export default function AuthScreen() {
         }
       } else {
         if (kind === "phone") {
-          await api.phoneSend(identifier.trim());
+          if (!isWeb) {
+            Alert.alert(
+              "Use the web preview",
+              "Phone signup on Expo Go isn't supported yet (needs an EAS native build). Open BUMP in your browser, or sign up with email."
+            );
+            setBusy(false);
+            return;
+          }
+          try {
+            const confirmation = await fbSendPhoneOtp(identifier.trim());
+            fbConfirmRef.current = confirmation;
+          } catch (fe: any) {
+            Alert.alert("Couldn't send code", fe?.message || "Try again");
+            setBusy(false);
+            return;
+          }
           startCooldown();
           setStep("signup_phone_otp");
         } else if (kind === "email") {
@@ -155,12 +193,24 @@ export default function AuthScreen() {
     if (phoneCode.length < 4) return;
     setBusy(true);
     try {
+      let idToken: string | null = null;
+      if (isWeb && fbConfirmRef.current) {
+        idToken = await fbVerifyOtp(fbConfirmRef.current, phoneCode);
+      }
+      if (idToken) {
+        const res = await api.firebaseExchange(idToken);
+        await setToken(res.token);
+        await refresh();
+        resetFirebasePhoneAuth();
+        router.replace(res.user?.gender ? "/(tabs)/home" : "/profile-setup");
+        return;
+      }
       const res = await api.loginUnified({ identifier: identifier.trim(), code: phoneCode });
       await setToken(res.token);
       await refresh();
       router.replace(res.user?.gender ? "/(tabs)/home" : "/profile-setup");
     } catch (e: any) {
-      Alert.alert("Invalid code", e?.response?.data?.detail || "Try again");
+      Alert.alert("Invalid code", e?.message || e?.response?.data?.detail || "Try again");
     } finally {
       setBusy(false);
     }
@@ -240,18 +290,29 @@ export default function AuthScreen() {
     }
     setBusy(true);
     try {
-      const res = await api.signup({
-        identifier: identifier.trim(),
-        code: phoneCode,
-        username: username || undefined,
+      let idToken: string | null = null;
+      if (isWeb && fbConfirmRef.current) {
+        idToken = await fbVerifyOtp(fbConfirmRef.current, phoneCode);
+      }
+      if (!idToken) {
+        Alert.alert(
+          "Phone signup unavailable",
+          "Phone signup is only supported in the web preview right now. Use the email tab, or open BUMP in your browser."
+        );
+        setBusy(false);
+        return;
+      }
+      const res = await api.firebaseExchange(idToken, {
         first_name: firstName,
         age: a,
+        username: username || undefined,
       });
       await setToken(res.token);
       await refresh();
+      resetFirebasePhoneAuth();
       router.replace("/profile-setup");
     } catch (e: any) {
-      Alert.alert("Sign up failed", e?.response?.data?.detail || "Try again");
+      Alert.alert("Sign up failed", e?.message || e?.response?.data?.detail || "Try again");
     } finally {
       setBusy(false);
     }
@@ -261,7 +322,12 @@ export default function AuthScreen() {
     if (resendCooldown > 0) return;
     try {
       if (step === "signup_phone_otp" || step === "login_phone_otp") {
-        await api.phoneSend(identifier.trim());
+        if (!isWeb) {
+          Alert.alert("Use the web preview", "Phone OTP works in the browser preview only right now.");
+          return;
+        }
+        const confirmation = await fbSendPhoneOtp(identifier.trim());
+        fbConfirmRef.current = confirmation;
       } else if (step === "signup_email_otp") {
         const r = await api.emailOtpSend(identifier.trim().toLowerCase(), "signup");
         if (r?.dev_code) {
