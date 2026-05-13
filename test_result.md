@@ -110,6 +110,73 @@ user_problem_statement: |
   Drop Google/Apple sign-in buttons. Username 3–20 letters/digits/underscore.
 
 backend:
+  - task: "Venue ordering — clubs/lounges/bars priority + kind filter"
+    implemented: true
+    working: true
+    file: "backend/server.py + frontend/app/(tabs)/home.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added KIND_RANK map: Nightclub=0, Lounge=1, Cocktail Bar=2, Wine Bar=3, Pub=4, Bar=5, Live Music=6, Fine Dining=7, Restaurant=8. /api/venues now sorts by (kind_rank, distance) instead of distance alone — clubs/lounges/bars surface first. Added `kind` query param to filter (e.g. /api/venues?kind=Nightclub). Lounge heuristic added: name contains 'lounge' upgrades the kind classification. Added 'cocktail_lounge' and 'hookah_lounge' to _kind_from_types primary detection. Frontend home now shows horizontal filter chips (All, Nightclub, Lounge, Bar, Cocktail Bar, Wine Bar, Live Music, Pub, Fine Dining)."
+      - working: true
+        agent: "testing"
+        comment: |
+          All 8 venue-ordering checks PASS (script: /app/backend_test_new.py) against
+          https://bump-venue-live.preview.emergentagent.com/api with NYC coords (40.758, -73.9855).
+
+          GET /api/venues?lat=40.758&lng=-73.9855 returned 37 venues. Inspection of top 10:
+            - idx 0  Nightclub      rank=0  dist=1135m  "Le Café Louis Vuitton NYC"
+            - idx 1  Cocktail Bar   rank=2  dist=624m
+            - idx 2  Cocktail Bar   rank=2  dist=863m
+            - idx 3  Cocktail Bar   rank=2  dist=1167m
+            - idx 4  Wine Bar       rank=3  dist=173m
+            - idx 5-9 Bar           rank=5  dist=188-556m
+          The Nightclub (1135m away) is correctly returned BEFORE all the closer Bars (188m+) — proving
+          sort key is (kind_rank, distance), NOT distance alone. ✅
+
+          Verified:
+          - first Nightclub/Lounge appears before first Restaurant (idx 0 < idx 18) ✅
+          - kind_rank non-decreasing across the whole list (unique ranks: [0,2,3,5,8]) ✅
+          - within each kind_rank bucket, distance is ascending ✅
+          - 18 Restaurants closer than the only Nightclub all come AFTER the Nightclub ✅
+
+          Kind filter:
+          - ?kind=Nightclub → 1 result, all kind=Nightclub ✅
+          - ?kind=Bar → 13 results, all kind=Bar ✅
+          - ?kind=Lounge → 0 results (no Lounge venues at Times Square in current cache); contract honoured ✅
+          - ?kind=Invalid → [] (HTTP 200) ✅
+
+          No issues. Ordering + kind filter work exactly as spec'd.
+
+  - task: "Auto-expiration TTL indexes (checkins, messages, matches, push tokens)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added MongoDB TTL indexes in seed_data(): checkins.expires_at (auto-delete when reached, ~6h after check-in), messages.created_at expires after 24h, matches.created_at expires after 24h, push_tokens.updated_at expires after 90 days. MongoDB background process cleans up automatically every 60 seconds — no app-level cron needed."
+      - working: true
+        agent: "testing"
+        comment: |
+          All 4 TTL indexes verified via direct PyMongo index_information() on the live database
+          (script: /app/backend_test_new.py):
+
+          - db.checkins:    index on `expires_at` with expireAfterSeconds=0       ✅
+          - db.messages:    index on `created_at` with expireAfterSeconds=86400   ✅ (24h)
+          - db.matches:     index on `created_at` with expireAfterSeconds=86400   ✅ (24h)
+          - db.push_tokens: index on `updated_at` with expireAfterSeconds=7776000 ✅ (90d)
+
+          Backend logs show no "Index creation:" warnings from seed_data() — indexes were created
+          cleanly on startup. MongoDB background reaper runs every ~60s and will auto-delete expired
+          docs; no app-level cron required.
+
   - task: "Check-in — Live selfie with GPS proximity validation"
     implemented: true
     working: true
@@ -325,8 +392,7 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Push notifications — POST /api/push/register and send_push helper"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -410,3 +476,33 @@ agent_communication:
       no tokens are registered or exponent-server-sdk is missing.
 
       No issues found. Main agent can summarise and finish for this push-notifications task.
+  - agent: "testing"
+    message: |
+      Quick BUMP backend sanity for two new features — 17/17 PASS via /app/backend_test_new.py
+      against https://bump-venue-live.preview.emergentagent.com/api.
+
+      1) Venue ordering by kind priority (NYC coords 40.758, -73.9855):
+         - GET /api/venues returned 37 venues sorted by (kind_rank, distance). The single Nightclub
+           (1135m away) is correctly at index 0 BEFORE all 18 closer Restaurants (173m+).
+           Confirms sort key is (kind_rank, distance), NOT distance alone. ✅
+         - kind_rank non-decreasing across full list (unique ranks: [0,2,3,5,8]) ✅
+         - within each kind bucket, distance ascending ✅
+         - ?kind=Nightclub → 1 result, all kind=Nightclub ✅
+         - ?kind=Bar → 13 results, all kind=Bar ✅
+         - ?kind=Lounge → 0 results in current Times Square cache (contract honoured) ✅
+         - ?kind=Invalid → [] (HTTP 200) ✅
+
+      2) TTL indexes (verified via direct PyMongo index_information):
+         - db.checkins.expires_at expireAfterSeconds=0 ✅
+         - db.messages.created_at expireAfterSeconds=86400 ✅
+         - db.matches.created_at expireAfterSeconds=86400 ✅
+         - db.push_tokens.updated_at expireAfterSeconds=7776000 ✅
+         No "Index creation:" warnings in backend logs — seed_data() ran cleanly.
+
+      3) Sanity (re-verified, no regressions):
+         - POST /api/auth/login (ava@bump.app/demo1234) → 200 ✅
+         - GET /api/auth/me → 200 ✅
+         - POST /api/auth/identify ava_nyc → kind=username, exists=true ✅
+         - POST /api/push/register valid Expo token → 200 ✅
+
+      No issues. Main agent can summarise and finish.

@@ -122,13 +122,16 @@ def _vibe_from_types(primary: Optional[str], types: List[str]) -> str:
 
 def _kind_from_types(primary: Optional[str], types: List[str]) -> str:
     """Pick the *most nightlife-y* tag as the primary kind.
-    Priority order (strict): Nightclub > Cocktail Bar > Wine Bar > Pub > Bar > Live Music > Fine Dining > Restaurant.
+    Priority order (strict): Nightclub > Lounge > Cocktail Bar > Wine Bar > Pub > Bar > Live Music > Fine Dining > Restaurant.
     primaryType (when set by Google) wins over the secondary types array.
     """
     p = (primary or "").lower()
     t = set((x or "").lower() for x in (types or []))
+    name_hint = ""  # set by caller for lounge detection from name
     PRIORITY = [
         ("night_club", "Nightclub"),
+        ("cocktail_lounge", "Lounge"),
+        ("hookah_lounge", "Lounge"),
         ("cocktail_bar", "Cocktail Bar"),
         ("wine_bar", "Wine Bar"),
         ("pub", "Pub"),
@@ -146,6 +149,25 @@ def _kind_from_types(primary: Optional[str], types: List[str]) -> str:
         if key in t:
             return label
     return "Venue"
+
+
+# Sort rank for kind — lower = appears first in venue list
+KIND_RANK = {
+    "Nightclub": 0,
+    "Lounge": 1,
+    "Cocktail Bar": 2,
+    "Wine Bar": 3,
+    "Pub": 4,
+    "Bar": 5,
+    "Live Music": 6,
+    "Fine Dining": 7,
+    "Restaurant": 8,
+    "Venue": 9,
+}
+
+
+def _kind_rank(kind: Optional[str]) -> int:
+    return KIND_RANK.get(kind or "Venue", 9)
 
 
 def _call_places_nearby(lat: float, lng: float, included_types: List[str]) -> List[Dict[str, Any]]:
@@ -1250,6 +1272,7 @@ async def list_venues(
     lat: float = 0,
     lng: float = 0,
     refresh: int = 0,
+    kind: Optional[str] = None,  # filter to a single kind (Nightclub, Lounge, Bar, ...)
     user: Dict = Depends(get_user),
 ):
     # If refresh requested, drop the grid cache so Google is re-queried
@@ -1266,6 +1289,11 @@ async def list_venues(
     now = utcnow()
     out = []
     for v in venues:
+        # Lounge heuristic: name contains "lounge" → upgrade kind
+        if (v.get("kind") or "") in ("Bar", "Cocktail Bar", "Venue") and "lounge" in (v.get("name") or "").lower():
+            v["kind"] = "Lounge"
+        if kind and (v.get("kind") or "").lower() != kind.lower():
+            continue
         v["distance_m"] = int(haversine_m(lat, lng, v["lat"], v["lng"])) if (lat or lng) else None
         # Only return venues within reasonable radius when GPS provided
         if (lat or lng) and v["distance_m"] is not None and v["distance_m"] > PLACES_RADIUS_M * 2:
@@ -1275,11 +1303,13 @@ async def list_venues(
             "expires_at": {"$gt": now},
         })
         v["active_count"] = active
+        v["kind_rank"] = _kind_rank(v.get("kind"))
         out.append(v)
     if lat or lng:
-        out.sort(key=lambda x: x.get("distance_m") or 0)
+        # Sort by kind priority FIRST (clubs/lounges/bars first), then by distance
+        out.sort(key=lambda x: (x.get("kind_rank", 9), x.get("distance_m") or 0))
     else:
-        out.sort(key=lambda x: -(x.get("active_count") or 0))
+        out.sort(key=lambda x: (x.get("kind_rank", 9), -(x.get("active_count") or 0)))
     return out
 
 
@@ -1746,6 +1776,15 @@ async def seed_data():
         await db.users.create_index("phone", unique=True, sparse=True)
         await db.reset_tokens.create_index("expires_at", expireAfterSeconds=0)
         await db.email_otps.create_index("expires_at", expireAfterSeconds=0)
+        # Auto-expiration TTL indexes (background MongoDB cleanup)
+        # Checkins: expire when expires_at is reached (6h after check-in)
+        await db.checkins.create_index("expires_at", expireAfterSeconds=0)
+        # Messages: expire 24h after created_at (PRD: chats expire after 24h)
+        await db.messages.create_index("created_at", expireAfterSeconds=24 * 60 * 60)
+        # Matches: expire 24h after created_at to mirror chat lifecycle
+        await db.matches.create_index("created_at", expireAfterSeconds=24 * 60 * 60)
+        # Push tokens stale cleanup: 90 days since last update
+        await db.push_tokens.create_index("updated_at", expireAfterSeconds=90 * 24 * 60 * 60)
     except Exception as e:
         logger.warning(f"Index creation: {e}")
 

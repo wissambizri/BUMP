@@ -9,6 +9,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   TextInput,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -42,6 +43,9 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeCheckin, setActiveCheckin] = useState<any>(null);
   const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState<string | null>(null);
+
+  const KINDS = ["All", "Nightclub", "Lounge", "Bar", "Cocktail Bar", "Wine Bar", "Live Music", "Pub", "Fine Dining"] as const;
 
   const load = useCallback(async (refresh = false) => {
     let lat = 0;
@@ -89,6 +93,8 @@ export default function Home() {
     <SafeAreaView style={styles.root}>
       <FlatList
         data={venues.filter((v) => {
+          // Kind filter
+          if (kindFilter && v.kind !== kindFilter) return false;
           const q = query.trim().toLowerCase();
           if (!q) return true;
           return (
@@ -144,7 +150,29 @@ export default function Home() {
                 <Ionicons name="chevron-forward" size={18} color={colors.volt} />
               </TouchableOpacity>
             )}
-            <Text style={styles.section}>NEARBY · {venues.length}</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginTop: 4, marginBottom: 12 }}
+              contentContainerStyle={{ gap: 8, paddingRight: 8 }}
+            >
+              {KINDS.map((k) => {
+                const isActive = (k === "All" && !kindFilter) || k === kindFilter;
+                return (
+                  <TouchableOpacity
+                    key={k}
+                    testID={`filter-${k}`}
+                    onPress={() => setKindFilter(k === "All" ? null : k)}
+                    style={[styles.chip, isActive && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{k}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <Text style={styles.section}>
+              {kindFilter ? kindFilter.toUpperCase() + "S" : "NEARBY"} · {venues.filter((v) => !kindFilter || v.kind === kindFilter).length}
+            </Text>
           </View>
         }
         refreshControl={
@@ -270,6 +298,28 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginBottom: 12,
     marginTop: 8,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  chipActive: {
+    backgroundColor: colors.volt,
+    borderColor: colors.volt,
+  },
+  chipText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  chipTextActive: {
+    color: colors.inverse,
+    fontWeight: "800",
   },
   card: {
     height: 320,
