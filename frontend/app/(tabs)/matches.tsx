@@ -20,6 +20,7 @@ export default function Matches() {
   const [matches, setMatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "active" | "kept" | "expiring">("all");
 
   const load = useCallback(async () => {
     try {
@@ -77,6 +78,22 @@ export default function Matches() {
               <Ionicons name="close-circle" size={16} color={colors.textTertiary} />
             </TouchableOpacity>
           )}
+        </View>
+      )}
+      {matches.length > 0 && (
+        <View style={styles.filterRow}>
+          {(["all", "active", "kept", "expiring"] as const).map((f) => (
+            <TouchableOpacity
+              key={f}
+              onPress={() => setFilter(f)}
+              style={[styles.filterChip, filter === f && styles.filterChipActive]}
+              testID={`filter-${f}`}
+            >
+              <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+                {f === "all" ? "All" : f === "active" ? "New" : f === "kept" ? "Kept" : "Expiring"}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
       {matches.length === 0 ? (
@@ -162,4 +179,9 @@ const styles = StyleSheet.create({
   timer: { color: colors.fuchsia, fontSize: 11, fontWeight: "700", letterSpacing: 1 },
   kept: { color: colors.volt, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
   msg: { color: colors.textSecondary, fontSize: 13, marginTop: 4 },
+  filterRow: { flexDirection: "row", gap: 8, paddingHorizontal: 20, marginBottom: 12 },
+  filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.elevated, borderWidth: 1, borderColor: colors.glassBorder },
+  filterChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  filterText: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
+  filterTextActive: { color: "#fff" },
 });
