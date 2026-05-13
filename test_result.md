@@ -110,6 +110,18 @@ user_problem_statement: |
   Drop Google/Apple sign-in buttons. Username 3–20 letters/digits/underscore.
 
 backend:
+  - task: "Check-in — Live selfie with GPS proximity validation"
+    implemented: true
+    working: true
+    file: "backend/server.py + frontend/app/checkin/[id].tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "POST /api/checkin validates GPS within venue.geofence_radius_m (default 200m) via haversine. DEMO_MODE=1 allows override for testing. Selfie stored as base64, expires 6h. Frontend was upgraded: front/back camera flip toggle (selfie OR mirror OR full body), LIVE badge overlay, 60s client-side freshness check (forces retake if photo > 60s old at submit), mandatory GPS request (errors out if user denies), removed demo-selfie skip button. Camera-only — no gallery picker (uses expo-camera CameraView.takePictureAsync only)."
+
   - task: "Push notifications — POST /api/push/register and send_push helper"
     implemented: true
     working: true
