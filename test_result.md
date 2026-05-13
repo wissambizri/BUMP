@@ -110,6 +110,18 @@ user_problem_statement: |
   Drop Google/Apple sign-in buttons. Username 3–20 letters/digits/underscore.
 
 backend:
+  - task: "Push notifications — POST /api/push/register and send_push helper"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/push/register accepts ExponentPushToken (auth required). DELETE same path unregisters. send_push() uses exponent-server-sdk; wired into POST /api/likes (notifies both users on match) and POST /api/messages (notifies recipient with sender name + preview)."
+
   - task: "Unified auth — POST /api/auth/identify (smart routing)"
     implemented: true
     working: true

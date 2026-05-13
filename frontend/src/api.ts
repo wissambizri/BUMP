@@ -75,6 +75,11 @@ export const api = {
     client
       .post("/auth/phone/verify", { phone, code, first_name: firstName, age })
       .then((r) => r.data),
+  // push notifications
+  pushRegister: (token: string, platform?: string) =>
+    client.post("/push/register", { token, platform }).then((r) => r.data),
+  pushUnregister: (token: string) =>
+    client.delete("/push/register", { params: { token } }).then((r) => r.data),
   // venues
   venues: (lat: number, lng: number, refresh = false) =>
     client.get("/venues", { params: { lat, lng, refresh: refresh ? 1 : 0 } }).then((r) => r.data),

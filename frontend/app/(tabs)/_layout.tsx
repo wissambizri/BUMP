@@ -1,8 +1,12 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "../../src/theme";
+import { useAuth } from "../../src/auth";
+import { usePushRegistration } from "../../src/push";
 
 export default function TabLayout() {
+  const { user } = useAuth();
+  usePushRegistration(user?.id);
   return (
     <Tabs
       screenOptions={{

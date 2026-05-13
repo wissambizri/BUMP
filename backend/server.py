@@ -29,6 +29,11 @@ try:
     import resend
 except ImportError:
     resend = None
+try:
+    from exponent_server_sdk import PushClient, PushMessage  # type: ignore
+except ImportError:
+    PushClient = None
+    PushMessage = None
 import re as _re
 import secrets as _secrets
 
@@ -981,6 +986,83 @@ async def confirm_reset(body: ResetConfirmIn):
     return {"token": token, "user": u}
 
 
+# -------------------- PUSH NOTIFICATIONS (Expo) --------------------
+_push_client = None
+
+
+def get_push_client():
+    global _push_client
+    if _push_client is None and PushClient is not None:
+        _push_client = PushClient()
+    return _push_client
+
+
+async def send_push(user_id: str, title: str, body: str, data: Optional[Dict[str, Any]] = None):
+    """Send Expo push notification to all of a user's registered devices. Fire-and-forget."""
+    if not PushClient or not PushMessage:
+        return
+    tokens = await db.push_tokens.find({"user_id": user_id}).to_list(20)
+    if not tokens:
+        return
+    cli = get_push_client()
+    if not cli:
+        return
+    msgs = []
+    for t in tokens:
+        tok = t.get("token")
+        if not tok or not tok.startswith("ExponentPushToken"):
+            continue
+        msgs.append(
+            PushMessage(
+                to=tok,
+                title=title,
+                body=body,
+                data=data or {},
+                sound="default",
+                priority="high",
+            )
+        )
+    if not msgs:
+        return
+    try:
+        await asyncio.to_thread(cli.publish_multiple, msgs)
+    except Exception as e:
+        logger.error(f"Push send err: {e}")
+
+
+class PushRegisterIn(BaseModel):
+    token: str
+    platform: Optional[str] = None  # ios | android | web
+    device_name: Optional[str] = None
+
+
+@api.post("/push/register")
+async def push_register(body: PushRegisterIn, user: Dict = Depends(get_user)):
+    if not body.token or not body.token.startswith("ExponentPushToken"):
+        raise HTTPException(400, "Invalid Expo push token")
+    await db.push_tokens.update_one(
+        {"token": body.token},
+        {
+            "$set": {
+                "token": body.token,
+                "user_id": user["id"],
+                "platform": body.platform,
+                "device_name": body.device_name,
+                "updated_at": utcnow(),
+            },
+            "$setOnInsert": {"created_at": utcnow()},
+        },
+        upsert=True,
+    )
+    return {"registered": True}
+
+
+@api.delete("/push/register")
+async def push_unregister(token: str, user: Dict = Depends(get_user)):
+    await db.push_tokens.delete_one({"token": token, "user_id": user["id"]})
+    return {"ok": True}
+
+
 # -------------------- TWILIO PHONE OTP --------------------
 class PhoneSendIn(BaseModel):
     phone: str  # E.164 format e.g. +14155551234
@@ -1383,6 +1465,26 @@ async def like(body: LikeIn, user: Dict = Depends(get_user)):
         "kept_by": [],
     }
     await db.matches.insert_one(match.copy())
+    # Send push notifications to both users
+    me_name = user.get("first_name", "Someone")
+    them = await db.users.find_one({"id": body.target_user_id}, {"_id": 0, "first_name": 1})
+    them_name = (them or {}).get("first_name", "Someone")
+    asyncio.create_task(
+        send_push(
+            body.target_user_id,
+            "It's a match! ⚡",
+            f"You and {me_name} matched. Say hi!",
+            {"type": "match", "match_id": match["id"]},
+        )
+    )
+    asyncio.create_task(
+        send_push(
+            user["id"],
+            "It's a match! ⚡",
+            f"You and {them_name} matched. Say hi!",
+            {"type": "match", "match_id": match["id"]},
+        )
+    )
     return {"matched": True, "match_id": match["id"]}
 
 
@@ -1468,6 +1570,17 @@ async def send_message(body: MessageIn, user: Dict = Depends(get_user)):
     msg["created_at"] = iso(msg["created_at"])
     # broadcast
     await ws_manager.broadcast(body.match_id, {"type": "message", "message": msg})
+    # push notify recipient
+    sender_name = user.get("first_name", "Someone")
+    preview = body.text[:80]
+    asyncio.create_task(
+        send_push(
+            other,
+            f"{sender_name}",
+            preview,
+            {"type": "message", "match_id": body.match_id},
+        )
+    )
     return msg
 
 
