@@ -8,6 +8,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Modal,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -65,32 +67,47 @@ export default function UserProfile() {
   };
 
   const block = () => {
-    Alert.alert("Block this user?", "They won't see you, you won't see them.", [
+    Alert.alert("Block this user?", "They won't see you, you won't see them. Existing matches will be removed.", [
       { text: "Cancel" },
       {
         text: "Block",
         style: "destructive",
         onPress: async () => {
           await api.block(String(uid));
+          Alert.alert("Blocked", "You can unblock from Settings → Blocked.");
           router.back();
         },
       },
     ]);
   };
 
-  const report = () => {
-    Alert.alert("Report this user?", "We'll review within 24h.", [
-      { text: "Cancel" },
-      {
-        text: "Report",
-        style: "destructive",
-        onPress: async () => {
-          await api.report(String(uid), "Inappropriate behavior");
-          Alert.alert("Thank you", "Report submitted.");
-        },
-      },
-    ]);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const REPORT_REASONS: { code: string; label: string; icon: string }[] = [
+    { code: "spam", label: "Spam or scam", icon: "ban-outline" },
+    { code: "harassment", label: "Harassment or hate", icon: "warning-outline" },
+    { code: "inappropriate_photo", label: "Inappropriate photos", icon: "image-outline" },
+    { code: "fake_profile", label: "Fake profile", icon: "person-remove-outline" },
+    { code: "underage", label: "Underage user", icon: "alert-circle-outline" },
+    { code: "violence", label: "Violence or threats", icon: "shield-outline" },
+    { code: "other", label: "Something else", icon: "ellipsis-horizontal" },
+  ];
+
+  const submitReport = async (code: string) => {
+    setReportBusy(true);
+    try {
+      await api.report(String(uid), code);
+      setReportOpen(false);
+      Alert.alert("Thank you", "We'll review within 24h. The user has been blocked for you.");
+      router.back();
+    } catch (e: any) {
+      Alert.alert("Couldn't submit", e?.response?.data?.detail || "Try again");
+    } finally {
+      setReportBusy(false);
+    }
   };
+
+  const report = () => setReportOpen(true);
 
   if (loading) {
     return (
@@ -135,8 +152,30 @@ export default function UserProfile() {
           </View>
           <View style={styles.nameBlock}>
             <Text style={styles.name}>
-              {user.first_name}, {user.age}
+              {user.first_name}
+              {!user.hide_age && user.age ? `, ${user.age}` : ""}
             </Text>
+            {(user.horoscope || user.email_verified || user.phone_verified) && (
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {user.horoscope ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+                    <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: "700" }}>
+                      {{
+                        Aries: "♈", Taurus: "♉", Gemini: "♊", Cancer: "♋",
+                        Leo: "♌", Virgo: "♍", Libra: "♎", Scorpio: "♏",
+                        Sagittarius: "♐", Capricorn: "♑", Aquarius: "♒", Pisces: "♓",
+                      }[user.horoscope as string] || ""} {user.horoscope}
+                    </Text>
+                  </View>
+                ) : null}
+                {(user.email_verified || user.phone_verified) && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.volt, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+                    <Ionicons name="checkmark-circle" size={14} color={colors.inverse} />
+                    <Text style={{ color: colors.inverse, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 }}>VERIFIED</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         </View>
 
@@ -179,6 +218,41 @@ export default function UserProfile() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Report reason bottom sheet */}
+      <Modal visible={reportOpen} animationType="slide" transparent onRequestClose={() => setReportOpen(false)}>
+        <Pressable style={reportStyles.backdrop} onPress={() => !reportBusy && setReportOpen(false)}>
+          <Pressable style={reportStyles.sheet} onPress={(e) => e.stopPropagation()}>
+            <View style={reportStyles.handle} />
+            <Text style={reportStyles.title}>Report user</Text>
+            <Text style={reportStyles.subtitle}>Pick a reason. We review within 24h.</Text>
+            {REPORT_REASONS.map((r) => (
+              <TouchableOpacity
+                key={r.code}
+                testID={`report-${r.code}`}
+                style={reportStyles.row}
+                onPress={() => submitReport(r.code)}
+                disabled={reportBusy}
+              >
+                <Ionicons name={r.icon as any} size={20} color={colors.textPrimary} />
+                <Text style={reportStyles.rowText}>{r.label}</Text>
+                {reportBusy ? (
+                  <ActivityIndicator color={colors.textTertiary} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                )}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={reportStyles.cancel}
+              onPress={() => setReportOpen(false)}
+              disabled={reportBusy}
+            >
+              <Text style={reportStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <SafeAreaView style={styles.actionBar} edges={["bottom"]}>
         <TouchableOpacity
@@ -299,3 +373,38 @@ const styles = StyleSheet.create({
   },
   hiText: { color: colors.textPrimary, fontWeight: "900", fontSize: 18, letterSpacing: 1 },
 });
+
+const reportStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  sheet: {
+    backgroundColor: colors.base,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
+    paddingBottom: 36,
+    borderTopWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.glassBorder,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  title: { color: colors.textPrimary, fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
+  subtitle: { color: colors.textSecondary, fontSize: 13, marginBottom: 16, marginTop: 4 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  rowText: { color: colors.textPrimary, fontSize: 15, flex: 1, fontWeight: "600" },
+  cancel: { marginTop: 12, alignItems: "center", paddingVertical: 14 },
+  cancelText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
+});
+

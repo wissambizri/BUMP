@@ -39,6 +39,7 @@ export const api = {
   login: (data: any) => client.post("/auth/login", data).then((r) => r.data),
   me: () => client.get("/auth/me").then((r) => r.data),
   updateProfile: (data: any) => client.put("/profile", data).then((r) => r.data),
+  horoscopes: () => client.get("/profile/horoscopes").then((r) => r.data),
   // unified auth (NEW)
   identify: (identifier: string) =>
     client.post("/auth/identify", { identifier }).then((r) => r.data),
@@ -100,8 +101,11 @@ export const api = {
   // safety
   block: (id: string) => client.post(`/safety/block/${id}`).then((r) => r.data),
   unblock: (id: string) => client.post(`/safety/unblock/${id}`).then((r) => r.data),
-  report: (id: string, reason: string) =>
-    client.post("/safety/report", { target_user_id: id, reason }).then((r) => r.data),
+  report: (id: string, reason: string, details?: string) =>
+    client.post("/safety/report", { target_user_id: id, reason, details }).then((r) => r.data),
+  reportCategories: () =>
+    client.get("/safety/report-categories").then((r) => r.data),
+  blockedList: () => client.get("/safety/blocked").then((r) => r.data),
   hide: (hidden: boolean) => client.post(`/safety/hide?hidden=${hidden}`).then((r) => r.data),
   deleteAccount: () => client.delete("/account").then((r) => r.data),
   // admin

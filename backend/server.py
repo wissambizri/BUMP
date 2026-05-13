@@ -430,6 +430,9 @@ class ProfileIn(BaseModel):
     bio: Optional[str] = None
     interests: Optional[List[str]] = None
     photos: Optional[List[str]] = None  # base64 or URL
+    horoscope: Optional[str] = None  # one of HOROSCOPE_SIGNS
+    hide_age: Optional[bool] = None  # if True, age is hidden on public profile
+    birthday: Optional[str] = None  # ISO YYYY-MM-DD; if provided, horoscope is auto-derived
 
 
 class CheckinIn(BaseModel):
@@ -451,7 +454,61 @@ class MessageIn(BaseModel):
 
 class ReportIn(BaseModel):
     target_user_id: str
-    reason: str
+    reason: str  # category code: spam, harassment, inappropriate_photo, fake_profile, underage, violence, other
+    details: Optional[str] = None
+
+
+REPORT_CATEGORIES = {
+    "spam": "Spam or scam",
+    "harassment": "Harassment or hate",
+    "inappropriate_photo": "Inappropriate photos",
+    "fake_profile": "Fake profile",
+    "underage": "Underage user",
+    "violence": "Violence or threats",
+    "other": "Something else",
+}
+AUTO_HIDE_THRESHOLD = 3  # auto-hide after this many open reports
+
+# Zodiac signs (date ranges in month-day pairs)
+HOROSCOPE_SIGNS = [
+    "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+    "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+]
+HOROSCOPE_EMOJI = {
+    "Aries": "♈", "Taurus": "♉", "Gemini": "♊", "Cancer": "♋",
+    "Leo": "♌", "Virgo": "♍", "Libra": "♎", "Scorpio": "♏",
+    "Sagittarius": "♐", "Capricorn": "♑", "Aquarius": "♒", "Pisces": "♓",
+}
+
+
+def horoscope_from_birthday(iso_date: str) -> Optional[str]:
+    """Derive zodiac from ISO YYYY-MM-DD birthday."""
+    try:
+        m, d = int(iso_date[5:7]), int(iso_date[8:10])
+    except Exception:
+        return None
+    ranges = [
+        ("Capricorn", (12, 22), (1, 19)),
+        ("Aquarius", (1, 20), (2, 18)),
+        ("Pisces", (2, 19), (3, 20)),
+        ("Aries", (3, 21), (4, 19)),
+        ("Taurus", (4, 20), (5, 20)),
+        ("Gemini", (5, 21), (6, 20)),
+        ("Cancer", (6, 21), (7, 22)),
+        ("Leo", (7, 23), (8, 22)),
+        ("Virgo", (8, 23), (9, 22)),
+        ("Libra", (9, 23), (10, 22)),
+        ("Scorpio", (10, 23), (11, 21)),
+        ("Sagittarius", (11, 22), (12, 21)),
+    ]
+    md = (m, d)
+    for sign, start, end in ranges:
+        if sign == "Capricorn":
+            if md >= start or md <= end:
+                return sign
+        elif start <= md <= end:
+            return sign
+    return None
 
 
 class KeepIn(BaseModel):
@@ -1256,9 +1313,22 @@ async def google_session(body: GoogleSessionIn):
     return {"token": token, "user": clean_user(user)}
 
 
+@api.get("/profile/horoscopes")
+async def horoscope_options():
+    return [{"sign": s, "emoji": HOROSCOPE_EMOJI[s]} for s in HOROSCOPE_SIGNS]
+
+
 @api.put("/profile")
 async def update_profile(body: ProfileIn, user: Dict = Depends(get_user)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
+    # Derive horoscope from birthday if provided
+    if "birthday" in updates and "horoscope" not in updates:
+        derived = horoscope_from_birthday(updates["birthday"])
+        if derived:
+            updates["horoscope"] = derived
+    # Validate horoscope value if explicitly set
+    if "horoscope" in updates and updates["horoscope"] and updates["horoscope"] not in HOROSCOPE_SIGNS:
+        raise HTTPException(400, f"Invalid horoscope. Allowed: {', '.join(HOROSCOPE_SIGNS)}")
     if updates:
         updates["updated_at"] = utcnow()
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
@@ -1615,29 +1685,104 @@ async def send_message(body: MessageIn, user: Dict = Depends(get_user)):
 
 
 # -------------------- SAFETY --------------------
+@api.get("/safety/report-categories")
+async def safety_categories():
+    return [{"code": k, "label": v} for k, v in REPORT_CATEGORIES.items()]
+
+
+@api.get("/safety/blocked")
+async def list_blocked(user: Dict = Depends(get_user)):
+    """Return profile summaries for everyone the current user has blocked."""
+    ids = user.get("blocked_users", []) or []
+    if not ids:
+        return []
+    cursor = db.users.find(
+        {"id": {"$in": ids}},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "photos": 1, "age": 1},
+    )
+    return await cursor.to_list(100)
+
+
 @api.post("/safety/block/{target_id}")
 async def block_user(target_id: str, user: Dict = Depends(get_user)):
-    await db.users.update_one({"id": user["id"]}, {"$addToSet": {"blocked_users": target_id}})
+    if target_id == user["id"]:
+        raise HTTPException(400, "You can't block yourself")
+    target = await db.users.find_one({"id": target_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+    await db.users.update_one(
+        {"id": user["id"]}, {"$addToSet": {"blocked_users": target_id}}
+    )
+    # Best-effort: remove existing matches / likes between the two
+    await db.matches.delete_many(
+        {
+            "$or": [
+                {"user_a": user["id"], "user_b": target_id},
+                {"user_a": target_id, "user_b": user["id"]},
+            ]
+        }
+    )
+    await db.likes.delete_many(
+        {
+            "$or": [
+                {"from_user": user["id"], "to_user": target_id},
+                {"from_user": target_id, "to_user": user["id"]},
+            ]
+        }
+    )
     return {"ok": True}
 
 
 @api.post("/safety/unblock/{target_id}")
 async def unblock_user(target_id: str, user: Dict = Depends(get_user)):
-    await db.users.update_one({"id": user["id"]}, {"$pull": {"blocked_users": target_id}})
+    await db.users.update_one(
+        {"id": user["id"]}, {"$pull": {"blocked_users": target_id}}
+    )
     return {"ok": True}
 
 
 @api.post("/safety/report")
 async def report_user(body: ReportIn, user: Dict = Depends(get_user)):
+    if body.target_user_id == user["id"]:
+        raise HTTPException(400, "You can't report yourself")
+    if body.reason not in REPORT_CATEGORIES:
+        raise HTTPException(400, "Invalid reason code")
+    target = await db.users.find_one({"id": body.target_user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+    # Prevent duplicate open reports from same reporter
+    existing = await db.reports.find_one(
+        {"from_user": user["id"], "target_user": body.target_user_id, "status": "open"}
+    )
+    if existing:
+        return {"ok": True, "report_id": existing["id"], "duplicate": True}
     rec = {
         "id": str(uuid.uuid4()),
         "from_user": user["id"],
         "target_user": body.target_user_id,
         "reason": body.reason,
+        "reason_label": REPORT_CATEGORIES.get(body.reason, body.reason),
+        "details": (body.details or "")[:500],
         "status": "open",
         "created_at": utcnow(),
     }
     await db.reports.insert_one(rec.copy())
+    # Auto-hide on threshold
+    open_count = await db.reports.count_documents(
+        {"target_user": body.target_user_id, "status": "open"}
+    )
+    if open_count >= AUTO_HIDE_THRESHOLD:
+        await db.users.update_one(
+            {"id": body.target_user_id},
+            {"$set": {"is_hidden": True, "auto_hidden_at": utcnow(), "auto_hidden_reports": open_count}},
+        )
+        logger.warning(
+            f"Auto-hid user {body.target_user_id} after {open_count} open reports"
+        )
+    # Auto-block the reported user from the reporter
+    await db.users.update_one(
+        {"id": user["id"]}, {"$addToSet": {"blocked_users": body.target_user_id}}
+    )
     return {"ok": True, "report_id": rec["id"]}
 
 
@@ -1689,6 +1834,28 @@ async def admin_reports(admin: Dict = Depends(get_admin)):
 @api.post("/admin/reports/{report_id}/resolve")
 async def admin_resolve(report_id: str, admin: Dict = Depends(get_admin)):
     await db.reports.update_one({"id": report_id}, {"$set": {"status": "resolved"}})
+    return {"ok": True}
+
+
+@api.post("/admin/users/{user_id}/suspend")
+async def admin_suspend(user_id: str, admin: Dict = Depends(get_admin)):
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_hidden": True, "is_suspended": True, "suspended_at": utcnow()}},
+    )
+    return {"ok": True}
+
+
+@api.post("/admin/users/{user_id}/unsuspend")
+async def admin_unsuspend(user_id: str, admin: Dict = Depends(get_admin)):
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_hidden": False, "is_suspended": False}, "$unset": {"suspended_at": ""}},
+    )
+    # Resolve all open reports against this user
+    await db.reports.update_many(
+        {"target_user": user_id, "status": "open"}, {"$set": {"status": "resolved"}}
+    )
     return {"ok": True}
 
 

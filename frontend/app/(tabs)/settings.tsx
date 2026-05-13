@@ -94,6 +94,12 @@ export default function Settings() {
           <Text style={[styles.rowText, { color: colors.fuchsia }]}>Leave venue now</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity testID="blocked-users" style={styles.row} onPress={() => router.push("/blocked")}>
+          <Ionicons name="ban-outline" size={20} color={colors.textSecondary} />
+          <Text style={[styles.rowText, { flex: 1 }]}>Blocked users</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+        </TouchableOpacity>
+
         {user?.is_admin && (
           <TouchableOpacity
             testID="admin-panel"

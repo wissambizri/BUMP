@@ -478,7 +478,61 @@ agent_communication:
       No issues found. Main agent can summarise and finish for this push-notifications task.
   - agent: "testing"
     message: |
-      Quick BUMP backend sanity for two new features — 17/17 PASS via /app/backend_test_new.py
+      Quick BUMP backend sanity for new Safety (D) + Profile (E) features — 29/29 PASS via
+      /app/backend_test_safety.py against https://bump-venue-live.preview.emergentagent.com/api.
+
+      Test 1: Safety reports
+      - GET /api/safety/report-categories → 7 categories with code+label
+        (spam, harassment, inappropriate_photo, fake_profile, underage, violence, other) ✅
+      - POST /api/safety/report (ava → maya, reason=spam) → 200 {ok:true, report_id:<uuid>} ✅
+      - POST /api/safety/report duplicate → 200 {ok:true, duplicate:true, same report_id} ✅
+      - POST /api/safety/report invalid reason "xyz" → 400 "Invalid reason code" ✅
+      - POST /api/safety/report target_user_id == self → 400 ✅
+      - POST /api/safety/report nonexistent target user_id → 404 ✅
+
+      Test 2: Auto-block after report
+      - GET /api/auth/me after report → target_user_id present in blocked_users list ✅
+
+      Test 3: Blocked list endpoint
+      - GET /api/safety/blocked → returns array of blocked profile summaries with
+        keys {id, first_name, age, photos, username} ✅
+      - POST /api/safety/unblock/{id} → 200 {ok:true} ✅
+      - GET /api/safety/blocked after unblock → list no longer contains that user ✅
+
+      Test 4: Auto-hide after threshold
+      - Registered 3 fresh users (e2e_blocker_1/2/3@bump.dev) via /api/auth/register ✅
+      - Each one called POST /api/safety/report against ava → 200 ✅
+      - After 3rd report ava has is_hidden=true AND auto_hidden_at set
+        (verified via GET /api/admin/users since no public /api/profile/{id} endpoint exists) ✅
+      - POST /api/admin/users/{ava_id}/unsuspend cleared ava and resolved the 3 open reports ✅
+
+      Test 5: Profile horoscope + hide_age
+      - GET /api/profile/horoscopes → 12 signs each with sign+emoji ✅
+      - PUT /api/profile {horoscope:"Leo", hide_age:true} → 200 updated user reflects both ✅
+      - PUT /api/profile {birthday:"1990-08-15"} (no horoscope) → backend auto-derives horoscope="Leo" ✅
+      - PUT /api/profile {horoscope:"Notazodiac"} → 400 "Invalid horoscope. Allowed: ..." ✅
+      - PUT /api/profile {hide_age:false} → reverts ✅
+
+      Test 6: Admin suspend/unsuspend (used maya@bump.app as target)
+      - POST /api/admin/users/{id}/suspend → 200; user gets is_hidden=true, is_suspended=true ✅
+      - POST /api/admin/users/{id}/unsuspend → 200; both flags cleared ✅
+
+      Test 7: Sanity (no regressions)
+      - POST /api/auth/login (ava@bump.app/demo1234) → 200 ✅
+      - GET /api/auth/me → 200 returns ava ✅
+      - GET /api/venues?lat=40.758&lng=-73.9855 → 200, 37 venues sorted by kind priority;
+        first Nightclub at idx 0, first Restaurant at idx 18 ✅
+
+      NOTE: Spec referenced "GET /api/profile/{ava_id}" but no such public endpoint exists in
+      backend/server.py — only /api/admin/users (admin) and /api/auth/me (self). Used /api/admin/users
+      to read the is_hidden/auto_hidden_at fields for Test 4, which is functionally equivalent.
+      Main agent may want to add a public GET /api/profile/{id} if that's part of the product spec.
+
+      No issues. Main agent can summarise and finish.
+
+  - agent: "testing"
+    message: |
+      [archived earlier run] Quick BUMP backend sanity for two new features — 17/17 PASS via /app/backend_test_new.py
       against https://bump-venue-live.preview.emergentagent.com/api.
 
       1) Venue ordering by kind priority (NYC coords 40.758, -73.9855):

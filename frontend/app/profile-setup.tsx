@@ -19,6 +19,20 @@ import { api } from "../src/api";
 import { colors } from "../src/theme";
 
 const GENDERS = ["female", "male", "non-binary"];
+const HOROSCOPES: { sign: string; emoji: string }[] = [
+  { sign: "Aries", emoji: "♈" },
+  { sign: "Taurus", emoji: "♉" },
+  { sign: "Gemini", emoji: "♊" },
+  { sign: "Cancer", emoji: "♋" },
+  { sign: "Leo", emoji: "♌" },
+  { sign: "Virgo", emoji: "♍" },
+  { sign: "Libra", emoji: "♎" },
+  { sign: "Scorpio", emoji: "♏" },
+  { sign: "Sagittarius", emoji: "♐" },
+  { sign: "Capricorn", emoji: "♑" },
+  { sign: "Aquarius", emoji: "♒" },
+  { sign: "Pisces", emoji: "♓" },
+];
 const INTEREST_OPTIONS = [
   "House", "Techno", "Hip Hop", "Jazz", "Travel",
   "Coffee", "Wine", "Cocktails", "Surf", "Yoga",
@@ -33,6 +47,8 @@ export default function ProfileSetup() {
   const [bio, setBio] = useState(user?.bio || "");
   const [interests, setInterests] = useState<string[]>(user?.interests || []);
   const [photos, setPhotos] = useState<string[]>(user?.photos || []);
+  const [horoscope, setHoroscope] = useState<string>(user?.horoscope || "");
+  const [hideAge, setHideAge] = useState<boolean>(!!user?.hide_age);
   const [saving, setSaving] = useState(false);
 
   const toggleInterest = (i: string) => {
@@ -78,6 +94,8 @@ export default function ProfileSetup() {
         bio,
         interests,
         photos,
+        horoscope: horoscope || undefined,
+        hide_age: hideAge,
       });
       setUser(updated);
       router.replace("/(tabs)/home");
@@ -168,6 +186,38 @@ export default function ProfileSetup() {
             style={styles.bio}
           />
 
+          <Text style={styles.label}>HOROSCOPE</Text>
+          <View style={styles.chips}>
+            {HOROSCOPES.map((h) => (
+              <TouchableOpacity
+                key={h.sign}
+                testID={`horoscope-${h.sign}`}
+                style={[styles.chip, horoscope === h.sign && styles.chipActive]}
+                onPress={() => setHoroscope(horoscope === h.sign ? "" : h.sign)}
+              >
+                <Text style={[styles.chipText, horoscope === h.sign && styles.chipTextActive]}>
+                  {h.emoji} {h.sign}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>HIDE MY AGE</Text>
+              <Text style={styles.toggleSub}>
+                Your age stays private. People see your zodiac instead.
+              </Text>
+            </View>
+            <TouchableOpacity
+              testID="hide-age-toggle"
+              style={[styles.toggle, hideAge && styles.toggleOn]}
+              onPress={() => setHideAge(!hideAge)}
+            >
+              <View style={[styles.toggleDot, hideAge && styles.toggleDotOn]} />
+            </TouchableOpacity>
+          </View>
+
           <Text style={styles.label}>VIBE TAGS</Text>
           <View style={styles.chips}>
             {INTEREST_OPTIONS.map((i) => (
@@ -247,6 +297,33 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderColor: colors.glassBorder,
+    marginTop: 4,
+  },
+  toggleSub: { color: colors.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 0 },
+  toggle: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.elevated,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    padding: 2,
+    justifyContent: "center",
+  },
+  toggleOn: { backgroundColor: colors.volt, borderColor: colors.volt },
+  toggleDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.textPrimary,
+  },
+  toggleDotOn: { backgroundColor: colors.inverse, transform: [{ translateX: 20 }] },
   chip: {
     paddingVertical: 10,
     paddingHorizontal: 16,
