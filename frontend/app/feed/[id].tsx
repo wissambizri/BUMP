@@ -322,45 +322,49 @@ export default function RadarFeed() {
 
         {current && (
           <View style={styles.actions}>
-            <TouchableOpacity
-              testID="action-nah"
-              onPress={() => act("pass")}
-              disabled={acting}
-              style={[styles.actBtn, styles.actNah]}
-            >
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              testID="action-wave"
-              onPress={() => act("hi")}
-              disabled={acting}
-              style={[styles.actBtn, styles.actWave]}
-            >
-              <Text style={{ fontSize: 28 }}>👋</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              testID="action-bump"
-              onPress={() => act("like")}
-              disabled={acting}
-              activeOpacity={0.85}
-              style={[styles.actBtn, { borderRadius: 999, overflow: "hidden", padding: 0 }]}
-            >
-              <LinearGradient
-                colors={["#7B2EFF", "#FF4FA3"] as any}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.actBtnInner]}
+            <View style={styles.actionItem}>
+              <TouchableOpacity
+                testID="action-nah"
+                onPress={() => act("pass")}
+                disabled={acting}
+                activeOpacity={0.85}
+                style={[styles.actBtn, styles.actNah]}
               >
-                <Text style={{ fontSize: 26 }}>💥</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        )}
-        {current && (
-          <View style={styles.actionLabels}>
-            <Text style={styles.actionLabel}>Nah</Text>
-            <Text style={styles.actionLabel}>Wave</Text>
-            <Text style={[styles.actionLabel, { color: colors.pink, fontWeight: "800" }]}>BUMP</Text>
+                <Ionicons name="close" size={30} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.actionLabel}>Nah</Text>
+            </View>
+            <View style={styles.actionItem}>
+              <TouchableOpacity
+                testID="action-wave"
+                onPress={() => act("hi")}
+                disabled={acting}
+                activeOpacity={0.85}
+                style={[styles.actBtn, styles.actWave]}
+              >
+                <Ionicons name="hand-left" size={28} color={colors.lime} />
+              </TouchableOpacity>
+              <Text style={[styles.actionLabel, styles.actionLabelWave]}>Wave</Text>
+            </View>
+            <View style={styles.actionItem}>
+              <TouchableOpacity
+                testID="action-bump"
+                onPress={() => act("like")}
+                disabled={acting}
+                activeOpacity={0.85}
+                style={[styles.actBtn, styles.actBumpShadow]}
+              >
+                <LinearGradient
+                  colors={["#7B2EFF", "#FF4FA3"] as any}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.actBtnInner}
+                >
+                  <Ionicons name="flash" size={28} color="#fff" />
+                </LinearGradient>
+              </TouchableOpacity>
+              <Text style={[styles.actionLabel, styles.actionLabelBump]}>BUMP</Text>
+            </View>
           </View>
         )}
       </SafeAreaView>
@@ -459,39 +463,73 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
-    gap: 18,
+    alignItems: "flex-start",
+    gap: 36,
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 20,
+    paddingBottom: 16,
   },
-  actionLabels: {
-    flexDirection: "row",
+  actionItem: {
+    alignItems: "center",
     justifyContent: "center",
-    gap: 56,
-    marginTop: 8,
-    paddingBottom: 12,
+    width: 72,
   },
   actionLabel: {
     color: colors.textSecondary,
     fontSize: 11,
-    fontFamily: fonts.bodyBold,
-    fontWeight: "700",
-    letterSpacing: 1,
-    width: 60,
+    fontFamily: fonts.heading,
+    fontWeight: "800",
+    letterSpacing: 2,
+    marginTop: 10,
     textAlign: "center",
+    textTransform: "uppercase",
+  },
+  actionLabelWave: {
+    color: colors.lime,
+  },
+  actionLabelBump: {
+    color: colors.pink,
+    fontSize: 12,
   },
   actBtn: {
-    width: 66,
-    height: 66,
+    width: 64,
+    height: 64,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.glassBorder,
   },
-  actBtnInner: { width: 66, height: 66, alignItems: "center", justifyContent: "center" },
-  actNah: { backgroundColor: "rgba(255,255,255,0.06)" },
-  actWave: { backgroundColor: "rgba(200,255,61,0.18)", borderColor: "rgba(200,255,61,0.45)" },
+  actBtnInner: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actNah: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  actWave: {
+    backgroundColor: "rgba(200,255,61,0.10)",
+    borderColor: "rgba(200,255,61,0.55)",
+  },
+  actBumpShadow: {
+    overflow: "hidden",
+    padding: 0,
+    borderColor: "rgba(255,79,163,0.6)",
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.pink,
+        shadowOpacity: 0.55,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      android: { elevation: 8 },
+      default: { boxShadow: "0 4px 14px rgba(255,79,163,0.45)" as any },
+    }),
+  },
   emptyCard: {
     width: CARD_W,
     minHeight: 280,
