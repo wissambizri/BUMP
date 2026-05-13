@@ -22,6 +22,44 @@ export const firebaseConfig = {
   measurementId: "G-3XMKKMD0J4",
 };
 
+// Suppress reCAPTCHA's internal "Cannot read properties of null" exceptions
+// from bubbling up to Expo's dev RedBox. These errors are non-fatal to the
+// underlying phone-auth flow; Google's lib handles them internally but Expo
+// catches all uncaught errors and shows them as if they crashed the app.
+function installRecaptchaErrorFilter() {
+  if (typeof window === "undefined") return;
+  const isRecaptcha = (msg: any, src?: string) => {
+    const s = (src || "") + " " + (msg?.message || msg || "");
+    return (
+      s.includes("recaptcha") ||
+      s.includes("gstatic.com/recaptcha") ||
+      (s.includes("Cannot read properties of null") && s.includes("style"))
+    );
+  };
+  window.addEventListener(
+    "error",
+    (e) => {
+      if (isRecaptcha(e.error || e.message, e.filename)) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+      }
+    },
+    true
+  );
+  window.addEventListener(
+    "unhandledrejection",
+    (e) => {
+      const reason: any = e.reason;
+      if (isRecaptcha(reason, reason?.fileName || reason?.stack)) {
+        e.preventDefault();
+        e.stopImmediatePropagation?.();
+      }
+    },
+    true
+  );
+}
+installRecaptchaErrorFilter();
+
 let _app: FirebaseApp | null = null;
 let _auth: Auth | null = null;
 let _verifier: RecaptchaVerifier | null = null;
