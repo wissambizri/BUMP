@@ -1,97 +1,78 @@
-import { useState, useRef } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  Dimensions,
-  ImageBackground,
-} from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ImageBackground, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts } from "../src/theme";
 import { GradientButton } from "../src/ui";
 
-const { width } = Dimensions.get("window");
-
-const SLIDES = [
-  {
-    title: "Tonight\nstarts here.",
-    sub: "Discover people already at your venue.",
-    bg: "https://images.unsplash.com/photo-1566808907388-c3ce09bc004f?w=1200&q=80",
-  },
-  {
-    title: "Real life.\nReal time.",
-    sub: "You can only match with people physically present.",
-    bg: "https://images.unsplash.com/photo-1571266028243-d220c6a1b8c4?w=1200&q=80",
-  },
-  {
-    title: "Break\nthe ice.",
-    sub: "Mutual like? It's a BUMP. Chat unlocks for 24 hours.",
-    bg: "https://images.unsplash.com/photo-1574391884720-bbc3740c59d1?w=1200&q=80",
-  },
-];
-
 export default function Onboarding() {
-  const [idx, setIdx] = useState(0);
-  const ref = useRef<FlatList>(null);
   const router = useRouter();
-
-  const onScroll = (e: any) => {
-    const i = Math.round(e.nativeEvent.contentOffset.x / width);
-    if (i !== idx) setIdx(i);
-  };
-
-  const next = () => {
-    if (idx < SLIDES.length - 1) {
-      ref.current?.scrollToIndex({ index: idx + 1, animated: true });
-    } else {
-      router.replace("/auth");
-    }
-  };
-
   return (
     <View style={styles.root}>
-      <FlatList
-        ref={ref}
-        data={SLIDES}
-        keyExtractor={(_, i) => String(i)}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        renderItem={({ item }) => (
-          <ImageBackground source={{ uri: item.bg }} style={{ width, height: "100%" }}>
-            <LinearGradient
-              colors={["rgba(3,3,5,0.4)", "rgba(3,3,5,0.95)"]}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <SafeAreaView style={styles.slide}>
-              <Text style={styles.brand}>BUMP</Text>
-              <View style={{ flex: 1 }} />
-              <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.sub}>{item.sub}</Text>
-            </SafeAreaView>
-          </ImageBackground>
-        )}
+      <ImageBackground
+        source={{
+          uri: "https://images.unsplash.com/photo-1571266028243-d220c6a9d6e9?w=1200&q=80",
+        }}
+        style={StyleSheet.absoluteFillObject}
+        imageStyle={{ opacity: 0.45 }}
+        resizeMode="cover"
       />
-      <SafeAreaView style={styles.footer} pointerEvents="box-none">
-        <View style={styles.dots}>
-          {SLIDES.map((_, i) => (
-            <View
-              key={i}
-              style={[styles.dot, idx === i && { backgroundColor: colors.volt, width: 24 }]}
-            />
-          ))}
+      <LinearGradient
+        colors={["transparent", "rgba(13,13,20,0.7)", "#0D0D14"] as any}
+        locations={[0, 0.55, 1]}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <LinearGradient
+        colors={["#7B2EFF55", "transparent"] as any}
+        start={{ x: 1, y: 0 }}
+        end={{ x: 0, y: 0.6 }}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+      <LinearGradient
+        colors={["#FF4FA344", "transparent"] as any}
+        start={{ x: 0, y: 1 }}
+        end={{ x: 0.7, y: 0.4 }}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+
+      <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+        <View style={styles.brandWrap}>
+          <Text style={styles.brand}>
+            BUMP
+            <Text style={styles.spark}>✨</Text>
+          </Text>
         </View>
-        <GradientButton
-          testID="onboarding-cta"
-          label={idx < SLIDES.length - 1 ? "Next" : "Enter BUMP"}
-          onPress={next}
-          variant="brand"
-        />
+
+        <View style={styles.heroBlock}>
+          <Text style={styles.hero} testID="onboarding-hero">
+            Who's around{"\n"}you right now?
+          </Text>
+          <Text style={styles.sub}>Real people. Real time.</Text>
+        </View>
+
+        <View style={styles.bottom}>
+          <GradientButton
+            testID="onboarding-join"
+            label="Join the room"
+            onPress={() => router.push("/signup")}
+            variant="brand"
+            style={{ width: "100%" }}
+          />
+          <TouchableOpacity
+            testID="onboarding-login"
+            onPress={() => router.push("/auth")}
+            style={styles.login}
+          >
+            <Text style={styles.loginText}>Log in</Text>
+          </TouchableOpacity>
+          <View style={styles.tagRow}>
+            <Ionicons name="flash" size={12} color={colors.lime} />
+            <Text style={styles.tag}>LIVE. REAL. NOW.</Text>
+          </View>
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -99,36 +80,68 @@ export default function Onboarding() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.void },
-  slide: { flex: 1, padding: 24, paddingBottom: 160 },
-  brand: {
-    color: colors.lime,
-    fontSize: 24,
-    fontFamily: fonts.heading,
-    fontWeight: "900",
-    letterSpacing: -1,
+  safe: {
+    flex: 1,
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
-  title: {
-    color: colors.textPrimary,
-    fontSize: 52,
+  brandWrap: { paddingTop: 16 },
+  brand: {
+    color: "#fff",
+    fontSize: 56,
     fontFamily: fonts.heading,
     fontWeight: "900",
-    letterSpacing: -2,
-    lineHeight: 56,
+    letterSpacing: -3,
+    ...(Platform.OS === "web"
+      ? ({
+          // @ts-ignore web gradient text
+          background: "linear-gradient(135deg, #7B2EFF, #FF4FA3)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
+          color: "transparent",
+        } as any)
+      : {}),
+  },
+  spark: { fontSize: 28 },
+  heroBlock: { marginBottom: 64 },
+  hero: {
+    color: "#fff",
+    fontFamily: fonts.heading,
+    fontWeight: "900",
+    fontSize: 44,
+    letterSpacing: -1.5,
+    lineHeight: 48,
   },
   sub: {
     color: colors.textSecondary,
-    fontSize: 16,
     fontFamily: fonts.body,
-    marginTop: 12,
-    lineHeight: 22,
+    fontSize: 15,
+    marginTop: 14,
+    letterSpacing: 0.2,
   },
-  footer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 24,
+  bottom: { gap: 12, paddingBottom: 8 },
+  login: { alignItems: "center", paddingVertical: 14 },
+  loginText: {
+    color: "#fff",
+    fontFamily: fonts.bodyBold,
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
-  dots: { flexDirection: "row", justifyContent: "center", marginBottom: 16, gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.2)" },
+  tagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  tag: {
+    color: colors.lime,
+    fontSize: 11,
+    fontFamily: fonts.bodyBold,
+    fontWeight: "700",
+    letterSpacing: 3,
+  },
 });
