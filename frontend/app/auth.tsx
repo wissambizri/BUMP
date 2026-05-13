@@ -390,6 +390,16 @@ export default function AuthScreen() {
                   Demo: ava@bump.app / demo1234
                 </Text>
               </TouchableOpacity>
+
+              <View style={styles.signupRow}>
+                <Text style={styles.signupMuted}>New to BUMP?</Text>
+                <TouchableOpacity
+                  testID="go-signup"
+                  onPress={() => router.push("/signup")}
+                >
+                  <Text style={styles.signupCta}>Create account</Text>
+                </TouchableOpacity>
+              </View>
             </>
           )}
 
@@ -684,6 +694,18 @@ const styles = StyleSheet.create({
   },
   ctaText: { color: colors.inverse, fontSize: 17, fontWeight: "800" },
   demoText: { color: colors.textTertiary, textAlign: "center", fontSize: 12, letterSpacing: 1 },
+  signupRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 32,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  signupMuted: { color: colors.textSecondary, fontSize: 14 },
+  signupCta: { color: colors.volt, fontSize: 14, fontWeight: "800" },
   link: { color: colors.volt, textAlign: "center", fontSize: 13, fontWeight: "700" },
   linkMuted: { color: colors.textSecondary, fontSize: 13 },
   hintErr: { color: "#ff8a8a", fontSize: 12, marginTop: -6, marginBottom: 8, marginLeft: 4 },
