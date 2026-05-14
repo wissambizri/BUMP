@@ -272,6 +272,37 @@ backend:
         agent: "main"
         comment: "POST /api/checkin validates GPS within venue.geofence_radius_m (default 200m) via haversine. DEMO_MODE=1 allows override for testing. Selfie stored as base64, expires 6h. Frontend was upgraded: front/back camera flip toggle (selfie OR mirror OR full body), LIVE badge overlay, 60s client-side freshness check (forces retake if photo > 60s old at submit), mandatory GPS request (errors out if user denies), removed demo-selfie skip button. Camera-only — no gallery picker (uses expo-camera CameraView.takePictureAsync only)."
 
+  - task: "Single-checkin enforcement — POST /api/checkin rejects 2nd venue with 409 structured detail"
+    implemented: true
+    working: true
+    file: "backend/routes/checkin.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: |
+          All 9 steps of the single-checkin spec PASS via /app/backend_test_single_checkin.py
+          against https://bump-venue-live.preview.emergentagent.com/api using ava@bump.app/demo1234
+          at NYC coords (40.7580, -73.9855).
+
+          - Step 3: POST /checkin venueA (Le Café Louis Vuitton NYC) → 200, returns checkin id +
+            venue_id + checked_in_at + expires_at. ✅
+          - Step 4: POST /checkin SAME venueA again → 200 (silent refresh: backend deletes the
+            previous row for same-venue then inserts a new one, returning new id). ✅
+          - Step 6: POST /checkin venueB (Mom's Kitchen and Bar) while still checked in to A →
+            409 Conflict with body { detail: { code:"already_checked_in",
+            active_venue_id:<venueA.id>, active_venue_name:"Le Café Louis Vuitton NYC",
+            message, expires_at } }. All four required fields present and correct. ✅
+          - Step 7: DELETE /checkin → 200 { ok:true }. ✅
+          - Step 8: POST /checkin venueB after leave → 200, returns new checkin tied to venueB. ✅
+          - Step 9: GET /checkin/active → { active:true, checkin:{ venue_id:<venueB.id>, ... } }. ✅
+
+          DEMO_MODE=1 confirmed bypassing geofence distance check; NYC coords for venue A/B
+          worked without "too far" rejection. No regressions detected. Implementation in
+          /app/backend/routes/checkin.py lines 28-53 is correct.
+
   - task: "Push notifications — POST /api/push/register and send_push helper"
     implemented: true
     working: true

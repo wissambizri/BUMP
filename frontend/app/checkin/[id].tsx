@@ -119,7 +119,63 @@ export default function Checkin() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/feed/${id}`);
     } catch (e: any) {
-      Alert.alert("Check-in failed", e?.response?.data?.detail || "You may be too far from the venue.");
+      const detail = e?.response?.data?.detail;
+      const isConflict =
+        e?.response?.status === 409 ||
+        (detail && typeof detail === "object" && detail.code === "already_checked_in");
+      if (isConflict) {
+        const activeVenueName = detail?.active_venue_name || "another venue";
+        const activeVenueId = detail?.active_venue_id;
+        Alert.alert(
+          "You're already live",
+          `You're checked in at ${activeVenueName}. You can only be at one place at a time.`,
+          [
+            { text: "Cancel", style: "cancel", onPress: () => setSubmitting(false) },
+            activeVenueId
+              ? {
+                  text: "See current venue",
+                  onPress: () => {
+                    setSubmitting(false);
+                    router.replace(`/feed/${activeVenueId}`);
+                  },
+                }
+              : { text: "OK", onPress: () => setSubmitting(false) },
+            {
+              text: "Leave & check in here",
+              style: "destructive",
+              onPress: async () => {
+                try {
+                  await api.leave();
+                  // Retry check-in with same selfie & GPS
+                  await api.checkin({
+                    venue_id: String(id),
+                    lat, lng,
+                    selfie_base64: preview,
+                  });
+                  await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  router.replace(`/feed/${id}`);
+                } catch (err: any) {
+                  Alert.alert(
+                    "Check-in failed",
+                    err?.response?.data?.detail?.message ||
+                      err?.response?.data?.detail ||
+                      "Try again"
+                  );
+                } finally {
+                  setSubmitting(false);
+                }
+              },
+            },
+          ]
+        );
+        return;
+      }
+      Alert.alert(
+        "Check-in failed",
+        (typeof detail === "string" && detail) ||
+          detail?.message ||
+          "You may be too far from the venue."
+      );
     } finally {
       setSubmitting(false);
     }

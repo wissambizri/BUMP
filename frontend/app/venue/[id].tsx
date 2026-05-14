@@ -41,14 +41,42 @@ export default function VenueDetail() {
   }
 
   const isHereAlready = active && active.venue_id === venue.id;
+  const isAtOtherVenue = active && active.venue_id !== venue.id;
 
   const goCheckin = async () => {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (isHereAlready) {
       router.push(`/feed/${venue.id}`);
-    } else {
-      router.push(`/checkin/${venue.id}`);
+      return;
     }
+    if (isAtOtherVenue) {
+      Alert.alert(
+        "You're already live",
+        "You can only be checked in to one venue at a time. Leave your current spot to check in here.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Open current venue",
+            onPress: () => router.push(`/feed/${active.venue_id}`),
+          },
+          {
+            text: "Leave & check in here",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await api.leave();
+                setActive(null);
+                router.push(`/checkin/${venue.id}`);
+              } catch (e: any) {
+                Alert.alert("Couldn't leave", e?.response?.data?.detail || "Try again");
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+    router.push(`/checkin/${venue.id}`);
   };
 
   return (
@@ -85,7 +113,11 @@ export default function VenueDetail() {
               activeOpacity={0.9}
             >
               <Text style={styles.ctaText}>
-                {isHereAlready ? "Open the room →" : "I'm here · Check in"}
+                {isHereAlready
+                  ? "Open the room →"
+                  : isAtOtherVenue
+                  ? "Leave current venue & check in"
+                  : "I'm here · Check in"}
               </Text>
             </TouchableOpacity>
 

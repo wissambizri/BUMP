@@ -23,8 +23,35 @@ async def checkin(body: CheckinIn, user: Dict = Depends(get_user)):
     if distance > venue.get("geofence_radius_m", 200):
         if not user.get("is_admin") and os.environ.get("DEMO_MODE", "1") != "1":
             raise HTTPException(400, f"You need to be closer to this venue. {int(distance)}m away.")
-    await db.checkins.delete_many({"user_id": user["id"]})
+
+    # Enforce single active check-in per user
     now = utcnow()
+    existing = await db.checkins.find_one(
+        {"user_id": user["id"], "expires_at": {"$gt": now}}, {"_id": 0}
+    )
+    if existing:
+        if existing["venue_id"] == body.venue_id:
+            # Same venue — just refresh selfie / extend session
+            await db.checkins.delete_many({"user_id": user["id"]})
+        else:
+            other_venue = await db.venues.find_one({"id": existing["venue_id"]}, {"_id": 0})
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "already_checked_in",
+                    "message": (
+                        f"You're already live at {other_venue.get('name', 'another venue')}. "
+                        "Leave that venue first to check in here."
+                    ),
+                    "active_venue_id": existing["venue_id"],
+                    "active_venue_name": other_venue.get("name") if other_venue else None,
+                    "expires_at": iso(existing["expires_at"]),
+                },
+            )
+    else:
+        # No active checkin — clean any stale expired records
+        await db.checkins.delete_many({"user_id": user["id"]})
+
     ci = {
         "id": str(uuid.uuid4()),
         "user_id": user["id"],
