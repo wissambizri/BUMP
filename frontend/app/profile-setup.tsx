@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -45,7 +46,20 @@ const INTEREST_OPTIONS = [
   "Surf", "Yoga", "Gym", "Running", "Hiking", "Boxing",
   "Photography", "Fashion", "Vinyl", "Art", "Beach", "Foodie",
   "Sushi", "Pizza", "Brunch", "Karaoke", "Rooftops", "Speakeasies",
+  "Dancing", "Afterparty", "Food", "Networking", "Artists", "Business", "Good vibes",
 ];
+
+const INTEREST_ICON: Record<string, string> = {
+  House: "🏠", Techno: "🎛️", "Hip Hop": "🎤", Jazz: "🎷", "R&B": "🎶",
+  Reggaeton: "🔥", Latin: "💃", Afrobeats: "🥁", EDM: "🎧", Indie: "🎸",
+  Rock: "🎸", Soul: "💫",
+  Travel: "✈️", Coffee: "☕", Wine: "🍷", Cocktails: "🍸", Whiskey: "🥃", Tequila: "🍹",
+  Surf: "🏄", Yoga: "🧘", Gym: "💪", Running: "🏃", Hiking: "🥾", Boxing: "🥊",
+  Photography: "📸", Fashion: "👠", Vinyl: "💿", Art: "🎨", Beach: "🏖️", Foodie: "🍔",
+  Sushi: "🍣", Pizza: "🍕", Brunch: "🥞", Karaoke: "🎤", Rooftops: "🌃", Speakeasies: "🥂",
+  Dancing: "💃", Afterparty: "🎉", Food: "🍴", Networking: "🤝", Artists: "🎨",
+  Business: "💼", "Good vibes": "✨",
+};
 
 function toggleInList(list: string[], value: string, max = 8): string[] {
   if (list.includes(value)) return list.filter((x) => x !== value);
@@ -339,19 +353,20 @@ export default function ProfileSetup() {
               {interests.map((i) => (
                 <TouchableOpacity
                   key={`sel-${i}`}
-                  style={[styles.chip, styles.chipActive]}
                   onPress={() => toggleInterest(i)}
                   testID={`selected-tag-${i}`}
+                  activeOpacity={0.85}
                 >
-                  <Text style={[styles.chipText, styles.chipTextActive]}>
-                    {i}
-                  </Text>
-                  <Ionicons
-                    name="close"
-                    size={13}
-                    color={colors.inverse}
-                    style={{ marginLeft: 4 }}
-                  />
+                  <LinearGradient
+                    colors={["#7B2EFF", "#FF4FA3"] as any}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.chip, styles.chipGradient]}
+                  >
+                    {INTEREST_ICON[i] && <Text style={styles.chipEmoji}>{INTEREST_ICON[i]}</Text>}
+                    <Text style={[styles.chipText, styles.chipTextActive]}>{i}</Text>
+                    <Ionicons name="close" size={13} color="#fff" style={{ marginLeft: 4 }} />
+                  </LinearGradient>
                 </TouchableOpacity>
               ))}
             </View>
@@ -392,6 +407,7 @@ export default function ProfileSetup() {
                   style={[styles.chip, interests.includes(i) && styles.chipActive]}
                   onPress={() => toggleInterest(i)}
                 >
+                  {INTEREST_ICON[i] && <Text style={styles.chipEmoji}>{INTEREST_ICON[i]}</Text>}
                   <Text style={[styles.chipText, interests.includes(i) && styles.chipTextActive]}>
                     {i}
                   </Text>
@@ -716,13 +732,23 @@ const styles = StyleSheet.create({
   },
   toggleDotOn: { backgroundColor: colors.inverse, transform: [{ translateX: 20 }] },
   chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     backgroundColor: colors.elevated,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.glassBorder,
   },
+  chipGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 0,
+  },
+  chipEmoji: { fontSize: 14 },
   chipActive: { backgroundColor: colors.volt, borderColor: colors.volt },
   chipText: { color: colors.textSecondary, fontSize: 13 },
   chipTextActive: { color: colors.inverse, fontWeight: "700" },
