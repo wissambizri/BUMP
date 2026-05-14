@@ -1,16 +1,9 @@
-// Firebase JS SDK init (web-friendly).
+// Firebase JS SDK init (web-only).
 // On native (Expo Go), Phone Auth via the JS SDK requires reCAPTCHA which
-// only works on web. The signup/auth screens detect Platform.OS === 'web'
-// and use Firebase there; on native they show a "use web preview" message.
+// only works on web. We lazy-load firebase modules to avoid bundling errors
+// and module-load crashes on native.
 
-import { initializeApp, getApps, FirebaseApp } from "firebase/app";
-import {
-  Auth,
-  getAuth,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  ConfirmationResult,
-} from "firebase/auth";
+import { Platform } from "react-native";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyBMarK7LSMteZX28uQzHkN-VuVUarKPj3M",
@@ -22,11 +15,12 @@ export const firebaseConfig = {
   measurementId: "G-3XMKKMD0J4",
 };
 
+const isWeb = Platform.OS === "web";
+
 // Suppress reCAPTCHA's internal "Cannot read properties of null" exceptions
-// from bubbling up to Expo's dev RedBox. These errors are non-fatal to the
-// underlying phone-auth flow; Google's lib handles them internally but Expo
-// catches all uncaught errors and shows them as if they crashed the app.
+// from bubbling up to Expo's dev RedBox.
 function installRecaptchaErrorFilter() {
+  if (!isWeb) return;
   if (typeof window === "undefined") return;
   const isRecaptcha = (msg: any, src?: string) => {
     const s = (src || "") + " " + (msg?.message || msg || "");
@@ -58,34 +52,33 @@ function installRecaptchaErrorFilter() {
     true
   );
 }
-installRecaptchaErrorFilter();
+// Only install on web; on native this is a no-op
+if (isWeb) installRecaptchaErrorFilter();
 
-let _app: FirebaseApp | null = null;
-let _auth: Auth | null = null;
-let _verifier: RecaptchaVerifier | null = null;
+// Lazy-loaded firebase modules. We avoid static imports because the JS SDK
+// has module-load side effects that crash on React Native (Expo Go).
+let _app: any = null;
+let _auth: any = null;
+let _verifier: any = null;
 let _containerId: string | null = null;
 
-export function getFirebaseApp(): FirebaseApp {
-  if (_app) return _app;
-  _app = getApps()[0] || initializeApp(firebaseConfig);
-  return _app;
+async function getFb() {
+  if (!isWeb) {
+    throw new Error(
+      "Firebase Phone Auth requires the web preview. On the mobile app, please use Email login."
+    );
+  }
+  if (_app && _auth) return { app: _app, auth: _auth };
+  // Dynamic imports so native bundles don't pull firebase
+  const fbApp = await import("firebase/app");
+  const fbAuth = await import("firebase/auth");
+  _app = fbApp.getApps()[0] || fbApp.initializeApp(firebaseConfig);
+  _auth = fbAuth.getAuth(_app);
+  return { app: _app, auth: _auth, fbAuth };
 }
 
-export function getFirebaseAuth(): Auth {
-  if (_auth) return _auth;
-  _auth = getFirebaseAuth_();
-  return _auth;
-}
-
-function getFirebaseAuth_(): Auth {
-  return getAuth(getFirebaseApp());
-}
-
-/** Fully resets verifier + DOM container. Call before creating a new verifier
- * to avoid the reCAPTCHA "Cannot read properties of null (reading 'style')"
- * crash that happens when React re-renders and removes the iframe under it.
- */
 export function resetFirebasePhoneAuth() {
+  if (!isWeb) return;
   try {
     if (_verifier) {
       try {
@@ -95,7 +88,6 @@ export function resetFirebasePhoneAuth() {
   } finally {
     _verifier = null;
   }
-  // Remove old container DOM nodes
   if (typeof document !== "undefined" && _containerId) {
     const old = document.getElementById(_containerId);
     if (old && old.parentNode) {
@@ -104,7 +96,6 @@ export function resetFirebasePhoneAuth() {
       } catch {}
     }
   }
-  // Also clean any orphan reCAPTCHA iframes Google sometimes leaves behind
   if (typeof document !== "undefined") {
     document
       .querySelectorAll('iframe[src*="recaptcha"]')
@@ -125,13 +116,10 @@ export function resetFirebasePhoneAuth() {
 }
 
 function createFreshContainer(): string {
-  // Always create a new, unique container id so React never tries to "manage" it.
   const id = `recaptcha-container-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   if (typeof document !== "undefined") {
     const div = document.createElement("div");
     div.id = id;
-    // Visible "I'm not a robot" widget — far more stable on mobile Safari than invisible.
-    // Center it near the top so users can see it clearly.
     div.style.position = "fixed";
     div.style.top = "50%";
     div.style.left = "50%";
@@ -147,40 +135,31 @@ function createFreshContainer(): string {
   return id;
 }
 
-export async function sendPhoneOtp(phoneE164: string): Promise<ConfirmationResult> {
-  // Always start fresh — this prevents the "null style" reCAPTCHA crash.
+export async function sendPhoneOtp(phoneE164: string): Promise<any> {
   resetFirebasePhoneAuth();
-  const auth = getFirebaseAuth();
+  const { auth, fbAuth } = (await getFb()) as any;
   const containerId = createFreshContainer();
-  _verifier = new RecaptchaVerifier(auth, containerId, {
-    // "normal" = visible "I'm not a robot" checkbox.
-    // Far more stable on mobile Safari than "invisible".
+  _verifier = new fbAuth.RecaptchaVerifier(auth, containerId, {
     size: "normal",
-    callback: () => {
-      // User checked the box — Firebase will now proceed to send SMS
-    },
-    "expired-callback": () => {
-      // reCAPTCHA expired — user must re-check next attempt
-    },
+    callback: () => {},
+    "expired-callback": () => {},
   });
   try {
     await _verifier.render();
-    const confirmation = await signInWithPhoneNumber(auth, phoneE164, _verifier);
-    // Once SMS is sent, we can hide the reCAPTCHA box
+    const confirmation = await fbAuth.signInWithPhoneNumber(auth, phoneE164, _verifier);
     if (typeof document !== "undefined" && _containerId) {
       const el = document.getElementById(_containerId);
       if (el) el.style.display = "none";
     }
     return confirmation;
   } catch (err) {
-    // On any error, clean up so the next attempt starts fresh
     resetFirebasePhoneAuth();
     throw err;
   }
 }
 
 export async function verifyPhoneOtpAndGetIdToken(
-  confirmation: ConfirmationResult,
+  confirmation: any,
   code: string
 ): Promise<string> {
   const result = await confirmation.confirm(code);
